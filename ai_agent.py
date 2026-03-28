@@ -41,9 +41,9 @@ class AI_Agent:
                     #开启流式输出
                     stream=True,
                     #工具调用配置
-                    tools=self.tool.tool_list,
+                    tools=self.tool.tool_list, # type: ignore
                     tool_choice="auto"
-                )
+                ) # type: ignore
 
                 # 处理流式输出
                 initial_answer=""
