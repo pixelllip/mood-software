@@ -37,7 +37,7 @@ class AI_Agent:
                 response=self.client.responses.create(
 
                     model="qwen3.5-flash",
-                    input=self.backlog.get_text(),
+                    input=self.backlog.message,
                     #开启流式输出
                     stream=True,
                     #工具调用配置
@@ -102,7 +102,7 @@ class AI_Agent:
             self.tool.get_weather()
         else:
             print(f"\n[未知工具: {tool_name}]")
-        return f"已调用工具: {tool_name}"
+        return f"\n已调用工具: {tool_name}"
     
 
 if __name__ == '__main__':

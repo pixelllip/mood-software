@@ -4,11 +4,15 @@ import time
 from datetime import datetime
 
 class Backlog:
-    def __init__(self,text=""):
+    def __init__(self,text=None):
         """### 定义路径对象"""
         self.base_path = Path(f"C:/Users/Administrator/Documents/Python/Software engineering/")
         self.path=self.base_path / f"Backlog/{time.strftime('%Y-%m-%d')}/{time.strftime('%H-%M-%S')}.json"
-        self.message = text if isinstance(text, list) else []
+        # 如果 text 为 None，则初始化为空列表
+        if text is None:
+            self.message = []
+        else:
+            self.message = text if isinstance(text, list) else []
 
     def append_user_text(self,text):
         """### 追加用户输入的文本"""
