@@ -55,11 +55,12 @@ class Backlog:
         start = datetime.strptime(start_date, '%Y-%m-%d').date()
         end = datetime.strptime(end_date, '%Y-%m-%d').date()
 
-        # 遍历基础目录下所有的日期文件夹
-        if not self.base_path.exists():
-            return "目录不存在"
+        # 遍历 Backlog 目录下所有的日期文件夹
+        backlog_path = self.base_path / "Backlog"
+        if not backlog_path.exists():
+            return "Backlog 目录不存在"
 
-        for date_dir in self.base_path.iterdir():
+        for date_dir in backlog_path.iterdir():
             if date_dir.is_dir():
                 try:
                     # 尝试将文件夹名解析为日期

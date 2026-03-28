@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from memory import Backlog
 from tools import AgentTools
 import time
+import json
 
 load_dotenv()
 class AI_Agent:
@@ -23,6 +24,82 @@ class AI_Agent:
         # 初始化工具
         self.tool=AgentTools()
 
+    def _create_response(self):
+        """创建一个新的响应对象"""
+        response=self.client.responses.create(
+            model="qwen3.5-flash",
+            input=self.backlog.message,
+            stream=True,
+            tools=self.tool.tool_list, # type: ignore
+            tool_choice="auto"
+        ) # type: ignore
+        return response
+    
+    def _process_response(self, response):
+        """处理响应事件（流式）"""
+        initial_answer=""
+        tool_name=""
+        thinking=0
+        for event in response:
+            # 处理响应失败
+            if event.type == 'response.failed':
+                print(f"\n[响应失败: {event.response.error.message}]")
+                break
+
+            # 处理思考过程
+            elif event.type == 'response.reasoning_summary_text.delta':
+                if thinking==0:
+                    print(f"思考中: {event.delta}", end="", flush=True)
+                    thinking=1
+                else:
+                    print(f"{event.delta}", end="", flush=True)
+            elif event.type == 'response.reasoning_summary_text.done':
+                print("\n")
+
+            # 处理回答内容
+            elif event.type == 'response.output_text.delta':
+                print(event.delta, end="", flush=True)
+                initial_answer+=event.delta
+                time.sleep(0.02)
+
+            # 处理工具调用
+            elif event.type == 'response.function_call_arguments.done':
+                tool_name=event.name.strip()
+                print(f"\n[工具调用: {tool_name}]\n")
+
+                # 解析工具参数
+                raw_args = getattr(event, 'arguments', None)
+                if raw_args:
+                    try:
+                        # 解析 JSON 字符串 -> Python 字典
+                        tool_arguments = json.loads(raw_args)
+                        print(f"[解析参数]: {tool_arguments}")
+                    except (json.JSONDecodeError, TypeError) as e:
+                        print(f"[参数解析错误]: {raw_args} | {e}")
+                        tool_arguments = {}
+        
+        return initial_answer, tool_name, tool_arguments
+
+    def _use_tool(self,tool_name, arguments):
+        """根据工具名称调用对应的方法"""
+        if tool_name == "":
+            return
+
+        # 处理传入工具名和参数
+        tool_name = tool_name.strip()
+        if not arguments:
+            arguments = {}
+            
+        if tool_name == "get_local_backlog":
+            self.tool.get_local_backlog(self.backlog)
+        elif tool_name == "get_weather":
+            self.tool.get_weather(**arguments)
+        elif tool_name == "backlog_read_range":
+            print(self.tool.backlog_read_range(self.backlog, **arguments))
+        else:
+            print(f"\n[未知工具: {tool_name}]")
+        return f"\n已调用工具: {tool_name}"
+
     def main(self):
         """主循环，持续获取用户输入并处理"""
         while(True):
@@ -34,49 +111,11 @@ class AI_Agent:
             self.backlog.append_user_text(input_text)
 
             try:
-                response=self.client.responses.create(
+                response=self._create_response()
 
-                    model="qwen3.5-flash",
-                    input=self.backlog.message,
-                    #开启流式输出
-                    stream=True,
-                    #工具调用配置
-                    tools=self.tool.tool_list, # type: ignore
-                    tool_choice="auto"
-                ) # type: ignore
-
-                # 处理流式输出
-                initial_answer=""
-                tool_name=""
-                thinking=0
-                for event in response:
-                    # 处理响应失败
-                    if event.type == 'response.failed':
-                        print(f"\n[响应失败: {event.response.error.message}]")
-                        break
-
-                    # 处理思考过程
-                    elif event.type == 'response.reasoning_summary_text.delta':
-                        if thinking==0:
-                            print(f"思考中: {event.delta}", end="", flush=True)
-                            thinking=1
-                        else:
-                            print(f"{event.delta}", end="", flush=True)
-                    elif event.type == 'response.reasoning_summary_text.done':
-                        print("\n")
-
-                    # 处理回答内容
-                    elif event.type == 'response.output_text.delta':
-                        print(event.delta, end="", flush=True)
-                        initial_answer+=event.delta
-                        time.sleep(0.02)
-
-                    # 处理工具调用
-                    elif event.type == 'response.function_call_arguments.done':
-                        tool_name=event.name.strip()
-                        print(f"\n[工具调用: {tool_name}]\n")
+                initial_answer, tool_name, tool_arguments=self._process_response(response)
                         
-                result=self._use_tool(tool_name)
+                result=self._use_tool(tool_name, tool_arguments)
                 print(result)
                 self.backlog.append_assistant_text(initial_answer)
             
@@ -92,17 +131,6 @@ class AI_Agent:
             
         # 退出循环后，将对话记录写入文件
         self.backlog.write_text()
-
-    def _use_tool(self,tool_name):
-        """根据工具名称调用对应的方法"""
-        tool_name = tool_name.strip()
-        if tool_name == "get_local_backlog":
-            self.tool.get_local_backlog(self.backlog)
-        elif tool_name == "get_weather":
-            self.tool.get_weather()
-        else:
-            print(f"\n[未知工具: {tool_name}]")
-        return f"\n已调用工具: {tool_name}"
     
 
 if __name__ == '__main__':

@@ -5,7 +5,7 @@ from pydantic import BaseModel,Field,ConfigDict
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather])
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range])
 
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -14,6 +14,11 @@ class AgentTools:
     def get_weather(self):
         """获取天气信息"""
         print(f"今天天气不错。")
+
+    def backlog_read_range(self, backlog: memory.Backlog, start_date: str, end_date: str):
+        """读取指定日期范围内的对话记录"""
+        results = backlog.read_range(start_date, end_date)
+        print(results)
 
 # 1. 定义工具字典结构
 class CustomToolDict(TypedDict):
@@ -24,13 +29,18 @@ class CustomToolDict(TypedDict):
 
 # 2. 定义模型 (修改点：使用类文档字符串描述工具，Field 描述描述参数)
 class Get_Local_Backlog(BaseModel):
-    """获取本地历史对话记录"""  # <--- 这里写工具的功能描述
-    content: str = Field(..., description="查询关键词或过滤条件") # <--- 这里写参数的具体含义
+    """获取当前的历史对话记录"""  # <--- 这里写工具的功能描述
+    backlog: str = Field(..., description="需要查询的 Backlog 对象") # <--- 这里写参数的具体含义
 
 class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
     location: str = Field(..., description="城市名称或地区代码") # <--- 这里写参数的具体含义
     # 为了演示区别，我稍微修改了字段名，如果你必须用 content 也可以，只要描述不同即可
+
+class Backlog_Read_Range(BaseModel):
+    """读取指定日期范围内的对话记录"""
+    start_date: str = Field(..., description="开始日期")
+    end_date: str = Field(..., description="结束日期")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
@@ -64,11 +74,11 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
         
     return tool_list
 
-# --- 方便理解要构建openai要求的tools参数，需要做什么改动 ---
+"""# --- 方便理解要构建openai要求的tools参数，需要做什么改动 ---
 if __name__ == "__main__":
     tools = build_tools_list([Get_Local_Backlog, Get_Weather])
     for tool in tools:
         print(f"工具名称: {tool['name']}")
         print(f"工具描述: {tool['description']}")
         print(f"参数 Schema: {tool['parameters']}")
-        print("-" * 40)
+        print("-" * 40)"""
