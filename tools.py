@@ -38,6 +38,7 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
     for model in models:
         # 获取 JSON Schema
         schema = model.model_json_schema()
+        print(f"原始 Schema for {model.__name__}:", schema)  # 调试输出，查看原始 Schema
         
         # 1. 提取工具描述 (Tool Description)
         # Pydantic V2 通常会将类文档字符串放入 schema 的顶层 description 中
@@ -56,11 +57,18 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
         
         tool_list.append({
             "type": "function",
-            "name": model.__name__.lower(), 
+            "name": model.__name__.lower(),     # 使用模型类名的小写作为工具名称
             "description": tool_description,    # 使用类文档字符串/功能描述
             "parameters": schema                # 使用包含字段描述的 Schema
         })
         
     return tool_list
 
-# --- 测试验证 ---
+# --- 方便理解要构建openai要求的tools参数，需要做什么改动 ---
+if __name__ == "__main__":
+    tools = build_tools_list([Get_Local_Backlog, Get_Weather])
+    for tool in tools:
+        print(f"工具名称: {tool['name']}")
+        print(f"工具描述: {tool['description']}")
+        print(f"参数 Schema: {tool['parameters']}")
+        print("-" * 40)
