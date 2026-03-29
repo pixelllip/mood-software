@@ -60,6 +60,8 @@ class Backlog:
         if not backlog_path.exists():
             return "Backlog 目录不存在"
 
+        print(f"\n[读取 {start_date} 至 {end_date} 的对话记录]:")
+        
         for date_dir in backlog_path.iterdir():
             if date_dir.is_dir():
                 try:
@@ -71,9 +73,13 @@ class Backlog:
                         # 读取该文件夹下所有的 .json 文件
                         for json_file in date_dir.glob("*.json"):
                             with open(json_file, 'r', encoding='utf-8') as f:
-                                results[f"{date_dir.name}/{json_file.name}"] = json.load(f)
+                                file_key=f"{date_dir.name}/{json_file.name}"
+                                message = json.load(f)
+                                results[file_key] = message
+                                print(f"已读取: {file_key}")
+                                for msg in message:
+                                    print(f"  [{msg['role']}]: {msg['content']}")
                 except ValueError:
                     # 跳过名称不符合日期格式的文件夹
                     continue
         
-        return results

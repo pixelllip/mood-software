@@ -11,9 +11,12 @@ class AgentTools:
         """获取对话记录"""
         print(backlog.get_text())
 
-    def get_weather(self):
+    def get_weather(self, location: str):
         """获取天气信息"""
-        print(f"今天天气不错。")
+        if not location:
+            print(f"今天天气不错。")
+        else:
+            print(f"{location}的天气情况是...")
 
     def backlog_read_range(self, backlog: memory.Backlog, start_date: str, end_date: str):
         """读取指定日期范围内的对话记录"""
@@ -27,7 +30,7 @@ class CustomToolDict(TypedDict):
     description: str       # 工具本身的功能描述
     parameters: Dict[str, Any] # 参数的 JSON Schema
 
-# 2. 定义模型 (修改点：使用类文档字符串描述工具，Field 描述描述参数)
+# 2. 定义模型 (使用类文档字符串描述工具，Field 描述描述参数)
 class Get_Local_Backlog(BaseModel):
     """获取当前的历史对话记录"""  # <--- 这里写工具的功能描述
     backlog: str = Field(..., description="需要查询的 Backlog 对象") # <--- 这里写参数的具体含义
@@ -48,7 +51,7 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
     for model in models:
         # 获取 JSON Schema
         schema = model.model_json_schema()
-        print(f"原始 Schema for {model.__name__}:", schema)  # 调试输出，查看原始 Schema
+        """print(f"原始 Schema for {model.__name__}:", schema)  # 调试输出，查看原始 Schema"""
         
         # 1. 提取工具描述 (Tool Description)
         # Pydantic V2 通常会将类文档字符串放入 schema 的顶层 description 中

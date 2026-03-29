@@ -16,8 +16,7 @@ class AI_Agent:
         self.backlog=Backlog([
             {
                 "role": "system",
-                "content": """你是我的人工智能助手，协助我解答问题，提供信息，完成任务。请用中文回答我的问题。
-                            请严格按照以下格式回答问题："""
+                "content": """你是我的人工智能助手，协助我解答问题，提供信息，完成任务。请用中文回答我的问题。"""
             }
         ])
 
@@ -40,6 +39,7 @@ class AI_Agent:
         initial_answer=""
         tool_name=""
         thinking=0
+        tool_arguments = {}
         for event in response:
             # 处理响应失败
             if event.type == 'response.failed':
@@ -60,7 +60,6 @@ class AI_Agent:
             elif event.type == 'response.output_text.delta':
                 print(event.delta, end="", flush=True)
                 initial_answer+=event.delta
-                time.sleep(0.02)
 
             # 处理工具调用
             elif event.type == 'response.function_call_arguments.done':
@@ -76,11 +75,12 @@ class AI_Agent:
                         print(f"[解析参数]: {tool_arguments}")
                     except (json.JSONDecodeError, TypeError) as e:
                         print(f"[参数解析错误]: {raw_args} | {e}")
-                        tool_arguments = {}
+            
+            time.sleep(0.01)
         
         return initial_answer, tool_name, tool_arguments
 
-    def _use_tool(self,tool_name, arguments):
+    def _use_tool(self,tool_name, arguments=None):
         """根据工具名称调用对应的方法"""
         if tool_name == "":
             return
@@ -95,7 +95,7 @@ class AI_Agent:
         elif tool_name == "get_weather":
             self.tool.get_weather(**arguments)
         elif tool_name == "backlog_read_range":
-            print(self.tool.backlog_read_range(self.backlog, **arguments))
+            self.tool.backlog_read_range(self.backlog, **arguments)
         else:
             print(f"\n[未知工具: {tool_name}]")
         return f"\n已调用工具: {tool_name}"
@@ -115,8 +115,9 @@ class AI_Agent:
 
                 initial_answer, tool_name, tool_arguments=self._process_response(response)
                         
-                result=self._use_tool(tool_name, tool_arguments)
-                print(result)
+                if(tool_name):
+                    result=self._use_tool(tool_name, tool_arguments)
+                    print(result)
                 self.backlog.append_assistant_text(initial_answer)
             
             except Exception as e:
@@ -124,10 +125,6 @@ class AI_Agent:
                 continue
 
             print("\n**************\n")
-            
-            """如果你想看思考过程：
-            elif event.type == 'response.reasoning_summary_text.delta':
-                print(f"[思考中: {event.delta}]\n", end="", flush=True)"""
             
         # 退出循环后，将对话记录写入文件
         self.backlog.write_text()
