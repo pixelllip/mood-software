@@ -98,6 +98,7 @@ class AI_Agent:
             self.tool.backlog_read_range(self.backlog, **arguments)
         else:
             print(f"\n[未知工具: {tool_name}]")
+            
         return f"\n已调用工具: {tool_name}"
 
     def main(self):
@@ -117,7 +118,8 @@ class AI_Agent:
                         
                 if(tool_name):
                     result=self._use_tool(tool_name, tool_arguments)
-                    print(result)
+                    print(f"工具执行结果：{result}")
+
                 self.backlog.append_assistant_text(initial_answer)
             
             except Exception as e:
