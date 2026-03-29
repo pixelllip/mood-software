@@ -8,7 +8,7 @@ import json
 load_dotenv()
 class AI_Agent:
     def __init__(self):# 加载OpenAI API，这里使用千问服务
-        self.client=OpenAI(
+        self.client=OpenAI( 
             base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
         )
 
@@ -34,7 +34,7 @@ class AI_Agent:
         ) # type: ignore
         return response
     
-    def _process_response(self, response):
+    def _process_response(self, response, final=False):
         """处理响应事件（流式）"""
         initial_answer=""
         tool_name=""
@@ -47,7 +47,7 @@ class AI_Agent:
                 break
 
             # 处理思考过程
-            elif event.type == 'response.reasoning_summary_text.delta':
+            elif event.type == 'response.reasoning_summary_text.delta' and not final:
                 if thinking==0:
                     print(f"思考中: {event.delta}", end="", flush=True)
                     thinking=1
@@ -93,7 +93,16 @@ class AI_Agent:
         if tool_name == "get_local_backlog":
             self.tool.get_local_backlog(self.backlog)
         elif tool_name == "get_weather":
-            self.tool.get_weather(**arguments)
+            info=self.tool.get_weather(**arguments)
+            final_response=self.client.responses.create(
+                model="qwen3.5-flash",
+                input=[{
+                    "role": "system",
+                    "content": f"以下是根据工具获取的信息：{info}。请基于这些信息回答用户的问题。"
+                }],
+                stream=True
+            )
+            self._process_response(final_response, final=True)
         elif tool_name == "backlog_read_range":
             self.tool.backlog_read_range(self.backlog, **arguments)
         else:
@@ -118,7 +127,7 @@ class AI_Agent:
                         
                 if(tool_name):
                     result=self._use_tool(tool_name, tool_arguments)
-                    print(f"工具执行结果：{result}")
+                    print(f"\n工具执行结果：{result}")
 
                 self.backlog.append_assistant_text(initial_answer)
             

@@ -1,6 +1,12 @@
 import memory
 from typing import Type,List,TypedDict,Dict,Any
 from pydantic import BaseModel,Field,ConfigDict
+from dotenv import load_dotenv
+import requests
+import os
+
+load_dotenv()
+Gaode_API_Key = os.getenv("Gaode_API_Key")
 
 class AgentTools:
     
@@ -11,12 +17,14 @@ class AgentTools:
         """获取对话记录"""
         print(backlog.get_text())
 
-    def get_weather(self, location: str):
+    def get_weather(self, adcode: str):
         """获取天气信息"""
-        if not location:
-            print(f"今天天气不错。")
+        if not adcode:
+            print(f"没有提供城市编码，无法获取天气信息。")
         else:
-            print(f"{location}的天气情况是...")
+            url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={adcode}&key={Gaode_API_Key}"
+            result = requests.get(url).json()
+            return result
 
     def backlog_read_range(self, backlog: memory.Backlog, start_date: str, end_date: str):
         """读取指定日期范围内的对话记录"""
@@ -37,7 +45,7 @@ class Get_Local_Backlog(BaseModel):
 
 class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
-    location: str = Field(..., description="城市名称或地区代码") # <--- 这里写参数的具体含义
+    adcode: str = Field(..., description="中国城市编码") # <--- 这里写参数的具体含义
     # 为了演示区别，我稍微修改了字段名，如果你必须用 content 也可以，只要描述不同即可
 
 class Backlog_Read_Range(BaseModel):
