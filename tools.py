@@ -1,7 +1,8 @@
 import memory
 from typing import Type,List,TypedDict,Dict,Any
-from pydantic import BaseModel,Field,ConfigDict
+from pydantic import BaseModel,Field
 from dotenv import load_dotenv
+import subprocess
 import requests
 import os
 
@@ -11,8 +12,8 @@ Gaode_API_Key = os.getenv("Gaode_API_Key")
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range])
-
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, Run_Script])
+    
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
         print(backlog.get_text())
@@ -30,6 +31,57 @@ class AgentTools:
         """读取指定日期范围内的对话记录"""
         results = backlog.read_range(start_date, end_date)
         print(results)
+
+    def run_script(self, script_path: str, target_path: str):
+        """运行指定的脚本文件（支持 Python 和 BAT）"""
+        
+        # 1. 路径预处理：自动转为绝对路径，并统一斜杠方向（解决转义和格式问题）
+        script_path = os.path.abspath(os.path.normpath(script_path))
+        target_path = os.path.abspath(os.path.normpath(target_path))
+
+        # 2. 检查文件是否存在（这里报错通常是因为简繁体不匹配或路径真的写错了）
+        if not os.path.isfile(script_path):
+            print(f"【错误】脚本不存在: {script_path}")
+            # 打印一下文件夹内容，方便排查是否是简繁体问题
+            parent = os.path.dirname(script_path)
+            if os.path.exists(parent):
+                print(f"该目录下文件有: {os.listdir(parent)}")
+            return
+        
+        if not os.path.isfile(target_path):
+            print(f"【错误】目标文件不存在: {target_path}")
+            return
+
+        # 获取脚本后缀
+        _, ext = os.path.splitext(script_path.lower())
+
+        # 3. 运行命令，支持 BAT/CMD 和 Python 脚本
+        try:
+            if ext in ['.bat', '.cmd']:
+                # 终端执行方式：脚本后面跟目标路径
+                # .bat/.cmd 在 Windows 上必须通过 cmd.exe 来执行
+                cmd = f'"{script_path}" "{target_path}"'
+                print(f"[INFO] 执行命令: {cmd}")
+                result = subprocess.run(cmd, shell=True, check=True)
+            elif ext == '.py':
+                # Python 脚本
+                import sys
+                cmd = [sys.executable, script_path, target_path]
+                print(f"[INFO] 执行命令: {cmd}")
+                result = subprocess.run(cmd, shell=False, check=True)
+            else:
+                print(f"【错误】不支持的脚本类型: {ext}")
+                return
+
+            print(f"[INFO] 运行完成，返回码: {result.returncode}")
+            return result.returncode
+        except subprocess.CalledProcessError as exc:
+            print(f"【错误】脚本执行失败，返回码: {exc.returncode}")
+            return exc.returncode
+        except Exception as exc:
+            print(f"【错误】脚本执行异常: {exc}")
+            return -1
+
 
 # 1. 定义工具字典结构
 class CustomToolDict(TypedDict):
@@ -52,6 +104,11 @@ class Backlog_Read_Range(BaseModel):
     """读取指定日期范围内的对话记录"""
     start_date: str = Field(..., description="开始日期")
     end_date: str = Field(..., description="结束日期")
+
+class Run_Script(BaseModel):
+    """运行指定的脚本文件"""
+    script_path: str = Field(..., description="要运行的脚本的文件路径")
+    target_path: str = Field(..., description="被脚本加工的对象的文件路径")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:

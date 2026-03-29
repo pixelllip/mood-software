@@ -30,7 +30,15 @@ class AI_Agent:
             input=self.backlog.message,
             stream=True,
             tools=self.tool.tool_list, # type: ignore
-            tool_choice="auto"
+            tool_choice="auto",
+            instructions="""以后当我提供路径时，如果给出路径和文件名中间有助词（如“的”、“了”、“の”），
+                            请自动剔除这些助词并替换成'\\'，
+                            只保留合法的文件后缀名（如 .mp3, .bat）之前的文字作为路径。
+                            例如：C:\\Program Files\\Microsoft VS Code的Code.exe，请自动解析为
+                            C:\\Program Files\\Microsoft VS Code\\Code.exe
+                            并且，请不要随意添加空格，如\\BonusTrack\\SEあり\\bonus track.mp3
+                            不要擅自改成\\BonusTrack\\SEあり\\b onus track.mp3
+                            也不要将“运行(GPU).bat”改成“运行GPU.bat”"""
         ) # type: ignore
         return response
     
@@ -105,6 +113,8 @@ class AI_Agent:
             self._process_response(final_response, final=True)
         elif tool_name == "backlog_read_range":
             self.tool.backlog_read_range(self.backlog, **arguments)
+        elif tool_name == "run_script":
+            self.tool.run_script(**arguments)
         else:
             print(f"\n[未知工具: {tool_name}]")
             
