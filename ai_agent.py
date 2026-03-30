@@ -112,8 +112,8 @@ class AI_Agent:
         elif tool_name == "run_script":
             self.tool.run_script(**arguments)
         elif tool_name == "text_to_image":
-            image_url = self.tool.text_to_image(arguments)
-            if image_url:
+            image = self.tool.text_to_image(arguments)
+            if image:
                 print(f"成功生成图片。")
             else:
                 print("未能生成图片。")

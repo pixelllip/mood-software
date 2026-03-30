@@ -7,3 +7,4 @@ C:\\Program Files\\Microsoft VS Code\\Code.exe
 不要擅自改成\\BonusTrack\\SEあり\\b onus track.mp3
 也不要将“运行(GPU).bat”改成“运行GPU.bat”
 如果要执行文生图功能，请调用text_to_image工具。
+并且告知用户，本工具使用本地Stable Diffusion WebUI实现。
