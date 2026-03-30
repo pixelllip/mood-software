@@ -4,15 +4,16 @@ from pydantic import BaseModel,Field
 from dotenv import load_dotenv
 import subprocess
 import requests
+import json
 import os
 
 load_dotenv()
-Gaode_API_Key = os.getenv("Gaode_API_Key")
 
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, Run_Script])
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
+                                           Run_Script, Text_to_Image])
     
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -20,6 +21,7 @@ class AgentTools:
 
     def get_weather(self, adcode: str):
         """获取天气信息"""
+        Gaode_API_Key = os.getenv("Gaode_API_Key")
         if not adcode:
             print(f"没有提供城市编码，无法获取天气信息。")
         else:
@@ -81,6 +83,64 @@ class AgentTools:
         except Exception as exc:
             print(f"【错误】脚本执行异常: {exc}")
             return -1
+        
+    def text_to_image(self, arguments: Dict[str, Any]):
+        """根据文本描述生成图片"""
+        api_key = os.getenv("STABLE_DIFFUSION_API_KEY")
+        if not api_key:
+            print("没有提供 Stable Diffusion API 密钥，无法生成图片。")
+            return
+        
+        url = "https://stablediffusionapi.com/api/v3/text2img"
+        payload = arguments.copy()
+        payload["key"] = api_key
+
+        headers = {'Content-Type': 'application/json'}
+        
+        try:
+            response = requests.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            image_url = result.get("data", [{}])[0].get("url")
+            if image_url:
+                print(f"生成的图片 URL: {image_url}")
+
+                # 将图片下载到本地，文件名根据时间戳生成
+                try:
+                    img_resp = requests.get(image_url, stream=True)
+                    img_resp.raise_for_status()
+                    import time
+                    suffix = os.path.splitext(image_url)[1] or '.png'
+                    timestamp = int(time.time() * 1000)
+                    local_file = os.path.join(os.getcwd(), f"generated_{timestamp}{suffix}")
+                    with open(local_file, 'wb') as f:
+                        for chunk in img_resp.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                    print(f"已下载图片到: {local_file}")
+
+                    try:
+                        # Windows 终端直接打开图片
+                        if os.name == 'nt':
+                            os.startfile(local_file)
+                        # Linux 终端使用 xdg-open 打开图片
+                        elif os.name == 'posix':
+                            subprocess.run(['xdg-open', local_file], check=False)
+                        else:
+                            print('当前平台不支持自动打开图片，请手动打开文件。')
+                    except Exception as exc_open:
+                        print(f"无法自动打开图片: {exc_open}")
+
+                    return local_file
+                except requests.RequestException as exc_img:
+                    print(f"图片下载失败: {exc_img}")
+                    return image_url
+            else:
+                print("未能从响应中获取图片 URL。")
+                return None
+        except requests.RequestException as exc:
+            print(f"【错误】请求 Stable Diffusion API 失败: {exc}")
+            return None
 
 
 # 1. 定义工具字典结构
@@ -109,6 +169,26 @@ class Run_Script(BaseModel):
     """运行指定的脚本文件"""
     script_path: str = Field(..., description="要运行的脚本的文件路径")
     target_path: str = Field(..., description="被脚本加工的对象的文件路径")
+
+class Text_to_Image(BaseModel):
+    """根据文本描述生成图片"""
+    key: str = Field(..., description="Stable Diffusion API 密钥，已经由本地方法提供")
+    prompt: str = Field(..., description="用于生成图片的文本描述")
+    negative_prompt: str = Field("", description="（可选）生成图片时要避免的元素描述")
+    width: int = Field(512, description="生成图片的宽度")
+    height: int = Field(512, description="生成图片的高度")
+    samples: int = Field(1, description="要生成的图片数量")
+    num_inference_steps: int = Field(20, description="生成图片的迭代步数，数值越大质量越好但耗时越长")
+    seed: int = Field(0, description="随机种子，设置相同的种子可以复现相同的图片")
+    guidance_scale: float = Field(7.5, description="引导尺度，数值越大生成的图片越贴近提示词，但可能失去多样性")
+    safety_checker: bool = Field(False, description="是否启用安全检查，启用后会过滤掉可能不适宜的内容")
+    multi_lingual: bool = Field(False, description="是否启用多语言支持，启用后可以更好地处理非英语提示词")
+    panorama: bool = Field(False, description="是否生成全景图片，启用后生成的图片宽高比会更大")
+    self_attention: bool = Field(False, description="是否启用自注意力机制，启用后可以提升图片细节但可能增加生成时间")
+    upscale: bool = Field(False, description="是否启用超分辨率，启用后生成的图片分辨率会更高但可能增加生成时间")
+    embeddings_model: str = Field("", description="（可选）用于生成图片的文本嵌入模型名称，指定后可以使用特定的文本编码方式来影响生成结果")
+    webhook_url: str = Field("", description="（可选）生成完成后回调的 URL，API 会将生成结果 POST 到这个地址，适用于异步处理场景")
+    track_id: str = Field("", description="（可选）用于跟踪生成任务的唯一标识符，适用于需要管理多个生成任务的场景")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:

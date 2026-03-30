@@ -83,3 +83,28 @@ class Backlog:
                     # 跳过名称不符合日期格式的文件夹
                     continue
         
+class Instructions:
+    def __init__(self):
+        self.base_path = Path(f"C:/Users/Administrator/Documents/Python/Software engineering/")
+        self.path = self.base_path / "instructions.txt"
+        self.content=self.load_instructions()
+
+    def load_instructions(self):
+        """从指定的 TXT 文件加载指令"""
+        try:
+            with open(self.path, 'r', encoding='utf-8') as f:
+                instructions = f.read()
+                print(f"已加载指令: {self.path}")
+                return instructions
+        except Exception as e:
+            print(f"【错误】加载指令失败: {e}")
+            return None
+
+    def write_instructions(self, new_instructions):
+        """将新的指令写入 TXT 文件"""
+        try:
+            with open(self.path, 'w', encoding='utf-8') as f:
+                f.write(new_instructions)
+                print(f"已更新指令: {self.path}")
+        except Exception as e:
+            print(f"【错误】写入指令失败: {e}")
