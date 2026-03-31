@@ -4,7 +4,6 @@ from pydantic import BaseModel,Field
 from dotenv import load_dotenv
 import subprocess
 import requests
-import json
 import os
 
 load_dotenv()

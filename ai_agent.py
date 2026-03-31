@@ -3,13 +3,15 @@ from dotenv import load_dotenv
 from memory import Backlog, Instructions
 from tools import AgentTools
 import time
+import os
 import json
 
 load_dotenv()
 class AI_Agent:
     def __init__(self):# 加载OpenAI API，这里使用千问服务
         self.client=OpenAI( 
-            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1',
+            api_key=os.getenv("OPENAI_API_KEY")
         )
 
         # 初始化对话记录
