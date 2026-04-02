@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from memory import Backlog, Instructions
 from tools import AgentTools
 import time
+import os
 import json
 import os
 import re
