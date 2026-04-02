@@ -10,7 +10,10 @@ load_dotenv()
 class Backlog:
     def __init__(self,text=None):
         """### 定义路径对象"""
-        self.base_path = Path(os.getenv("BASE_PATH"))
+        base_path = os.getenv("BASE_PATH")
+        if not base_path:
+            raise EnvironmentError("环境变量 BASE_PATH 未设置或为空")
+        self.base_path = Path(base_path)
         self.path=self.base_path / f"Backlog/{time.strftime('%Y-%m-%d')}/{time.strftime('%H-%M-%S')}.json"
         # 如果 text 为 None，则初始化为空列表
         if text is None:
@@ -89,7 +92,10 @@ class Backlog:
         
 class Instructions:
     def __init__(self):
-        self.base_path = Path(os.getenv("BASE_PATH")) 
+        base_path = os.getenv("BASE_PATH")
+        if not base_path:
+            raise EnvironmentError("环境变量 BASE_PATH 未设置或为空")
+        self.base_path = Path(base_path)
         self.path = self.base_path / "instructions.txt"
         self.content=self.load_instructions()
 
