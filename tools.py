@@ -12,7 +12,7 @@ class AgentTools:
     
     def __init__(self):
         self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
-                                           Run_Script, Text_to_Image])
+                                           Run_Script, Text_to_Image,Image_Recognition])
     
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -166,6 +166,89 @@ class AgentTools:
         except Exception as exc:
             print(f"【错误】生成图片失败: {exc}")
             return None
+        
+    def image_recognition(self, image_path: str, scene: str = "car"):
+        """多场景图像识别，支持车型、菜品、动物、植物、Logo、物体、食材识别并总结"""
+        import base64
+        from openai import OpenAI
+
+        BAIDU_API_KEY = os.getenv("BAIDU_API_KEY")
+        BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY")
+        DASHSCOPE_KEY = os.getenv("DASHSCOPE_API_KEY")
+
+        if not all([BAIDU_API_KEY, BAIDU_SECRET_KEY, DASHSCOPE_KEY]):
+            raise Exception("❌ 环境变量缺失，请检查 .env 文件中的 BAIDU_API_KEY、BAIDU_SECRET_KEY、DASHSCOPE_API_KEY")
+
+        # 获取百度Token（和你完全一样）
+        def get_baidu_token():
+            url = f"https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id={BAIDU_API_KEY}&client_secret={BAIDU_SECRET_KEY}"
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            }
+            payload = ""
+            try:
+                response = requests.request("POST", url, headers=headers, data=payload, timeout=10)
+                response.raise_for_status()
+                res_json = response.json()
+            except requests.exceptions.RequestException as e:
+                raise Exception(f"❌ 获取Token网络错误：{str(e)}")
+
+            if "access_token" not in res_json:
+                raise Exception(f"❌ 获取Token失败：{res_json.get('error_msg', res_json)}")
+            return res_json["access_token"]
+
+        # 图片识别（和你完全一样）
+        if not os.path.exists(image_path):
+            raise FileNotFoundError(f"❌ 文件不存在：{image_path}")
+        valid_ext = (".jpg", ".jpeg", ".png", ".bmp", ".gif")
+        if not image_path.lower().endswith(valid_ext):
+            raise ValueError(f"❌ 不是有效图片文件，仅支持：{valid_ext}")
+
+        with open(image_path, "rb") as f:
+            img_base64 = base64.b64encode(f.read()).decode("utf-8")
+
+        token = get_baidu_token()
+
+        api_urls = {
+            "car": "https://aip.baidubce.com/rest/2.0/image-classify/v1/car",
+            "animal": "https://aip.baidubce.com/rest/2.0/image-classify/v1/animal",
+            "plant": "https://aip.baidubce.com/rest/2.0/image-classify/v1/plant",
+            "object": "https://aip.baidubce.com/rest/2.0/image-classify/v1/object_detect",
+            "logo": "https://aip.baidubce.com/rest/2.0/image-classify/v2/logo",
+            "dish": "https://aip.baidubce.com/rest/2.0/image-classify/v2/dish",
+            "ingredient": "https://aip.baidubce.com/rest/2.0/image-classify/v1/ingredient"
+        }
+
+        if scene not in api_urls:
+            raise Exception(f"❌ 不支持的场景：{scene}，可选：{list(api_urls.keys())}")
+
+        url = f"{api_urls[scene]}?access_token={token}"
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        data = {"image": img_base64}
+
+        try:
+            response = requests.post(url, headers=headers, data=data, timeout=10)
+            response.raise_for_status()
+            baidu_result = response.json()
+        except requests.exceptions.RequestException as e:
+            raise Exception(f"❌ 百度API网络错误：{str(e)}")
+
+        if "error_code" in baidu_result:
+            raise Exception(f"❌ 百度识别失败：{baidu_result.get('error_msg', '未知错误')}（错误码：{baidu_result['error_code']}）")
+
+        # 流式AI总结（和你完全一样）
+        client = OpenAI(
+            api_key=DASHSCOPE_KEY,
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
+        )
+
+        info = baidu_result["result"][0] if (baidu_result.get("result") and len(baidu_result["result"]) > 0) else None
+        if not info:
+            print("未能识别到有效内容")
+            return
+        
+        return info
 
 
 # 1. 定义工具字典结构
@@ -204,6 +287,11 @@ class Text_to_Image(BaseModel):
     num_inference_steps: int = Field(20, description="生成图片的迭代步数，数值越大质量越好但耗时越长（默认20）")
     guidance_scale: float = Field(7.0, description="引导尺度，数值越大生成的图片越贴近提示词（默认7.0）")
     seed: int = Field(-1, description="随机种子，设置为-1表示随机，否则设置相同的种子可以复现相同的图片")
+
+class Image_Recognition(BaseModel):
+    """多场景图像识别，支持车型、菜品、动物、植物、logo、物体、食材，并流式输出描述"""
+    image_path: str = Field(..., description="图片完整路径，例如 C:/images/car.jpg")
+    scene: str = Field("car", description="识别场景：car/dish/animal/plant/logo/object/ingredient，默认car")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:

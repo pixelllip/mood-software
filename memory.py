@@ -2,11 +2,16 @@ from pathlib import Path
 import json
 import time
 from datetime import datetime
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
+BASE_PATH = os.getenv("BASE_PATH")
 
 class Backlog:
     def __init__(self,text=None):
         """### 定义路径对象"""
-        self.base_path = Path(f"C:/Users/Administrator/Documents/Python/Software engineering/")
+        self.base_path = Path(BASE_PATH)
         self.path=self.base_path / f"Backlog/{time.strftime('%Y-%m-%d')}/{time.strftime('%H-%M-%S')}.json"
         # 如果 text 为 None，则初始化为空列表
         if text is None:
@@ -85,7 +90,7 @@ class Backlog:
         
 class Instructions:
     def __init__(self):
-        self.base_path = Path(f"C:/Users/Administrator/Documents/Python/Software engineering/")
+        self.base_path = Path(BASE_PATH)
         self.path = self.base_path / "instructions.txt"
         self.content=self.load_instructions()
 

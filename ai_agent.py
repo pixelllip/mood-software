@@ -119,9 +119,22 @@ class AI_Agent:
                 print(f"成功生成图片。")
             else:
                 print("未能生成图片。")
+        elif tool_name == "image_recognition":
+            result = self.tool.image_recognition(**arguments)
+            if result:
+                final_response=self.client.responses.create(
+                    model="qwen3.5-flash",
+                    input=[
+                        {"role": "system", "content": f"""工具识别logo信息：{result}。
+                         用一句自然的话描述图片内容。"""},
+                        {"role": "user", "content": "描述这张图片"}
+                    ],
+                    stream=True,
+                )
+                self._process_response(final_response, final=True)
         else:
             print(f"\n[未知工具: {tool_name}]")
-            
+        
         return f"\n已调用工具: {tool_name}"
 
     def main(self):
