@@ -1,16 +1,18 @@
 # AI-Agent
 
-一个功能完整的 AI 智能助手系统，集成了大语言模型、本地图像生成、对话记录管理等多项功能。
+一个功能完整的 AI 智能助手系统，集成了大语言模型、本地图像生成、图像识别、联网搜索、对话记录管理等多项功能。
 
 ## 项目概述
 
-本项目采用模块化架构，分为三个核心板块：**AI 代理**、**工具集**和**内存管理**。通过这些模块的协作，实现了一个智能的、可扩展的 AI 助手系统。
+本项目采用模块化架构，分为三个核心板块：**AI 代理**、**工具集**和**内存管理**。通过这些模块的协作，实现了一个智能的、可扩展的 AI 助手系统，支持文本对话、图像生成与识别、实时搜索等多种功能。
 
 ## 项目特性
 
 - **AI 对话引擎**：基于阿里千问 API，支持多轮对话和上下文理解
 - **本地图像生成**：集成 Stable Diffusion WebUI，支持文本到图像的本地生成
-- **工具扩展系统**：模块化工具设计，支持天气查询、脚本执行、对话记录管理等
+- **图像识别**：集成百度智能云，支持多场景图像识别（车型、菜品、动物、植物等）
+- **联网搜索**：集成通义千问联网搜索，提供实时网络信息查询
+- **工具扩展系统**：模块化工具设计，支持天气查询、脚本执行、对话记录管理、待办清单生成等
 - **对话记录持久化**：自动保存对话历史，支持时间范围查询
 - **指令管理系统**：灵活的系统指令加载和更新
 
@@ -34,6 +36,9 @@
 | `get_local_backlog` | 获取当前对话记录 | backlog 对象 |
 | `backlog_read_range` | 查询日期范围内的对话 | start_date, end_date |
 | `run_script` | 执行本地脚本（Python/BAT） | script_path, target_path |
+| `image_recognition` | 多场景图像识别（车型、菜品、动物等） | image_path, scene |
+| `qwen_websearch` | 通义千问联网搜索问答 | query |
+| `task_organizer` | 生成格式化的待办清单 | tasks |
 
 ### 3. `memory.py` - 对话记录与指令管理
 
@@ -58,7 +63,7 @@
 Software engineering/
 ├── ai_agent.py              # AI 代理主程序
 ├── tools.py                 # 工具集合
-├── memory.py                # 内存管理（对话记录和指令）
+├── memory.py                # 对话记录与指令管理
 ├── instructions.txt         # 系统指令文件
 ├── README.md                # 项目文档
 ├── .env                      # 环境变量配置
@@ -86,6 +91,10 @@ Gaode_API_Key=your_gaode_api_key     # 高德地图 API 密钥
 BAIDU_API_KEY=your_baidu_api_key                    # 百度 API 密钥
 BAIDU_SECRET_KEY=your_baidu_secret_key              # 百度 Secret 密钥
                                                    # 申请地址：https://cloud.baidu.com/product/imagerecognition
+
+# 【可选】阿里云 DashScope API - 用于 qwen_websearch 工具进行联网搜索
+DASHSCOPE_API_KEY=your_dashscope_api_key            # 通义千问 API 密钥
+                                                   # 申请地址：https://dashscope.aliyuncs.com
 ```
 
 ### 依赖安装
@@ -170,7 +179,7 @@ MIT
 
 ## 更新日志
 
-- **2026-04-03**：日程规划功能、图文识别功能陆续上线
+- **2026-04-03**：日程规划功能、图文识别功能、联网搜索功能陆续上线
 - **2026-03-30**：完成本地 SD WebUI 调用，图片生成功能上线
 - **2026-03-29**：完成对话记录管理系统，查询天气功能上线
 - **2026-03-26**：初始化项目架构

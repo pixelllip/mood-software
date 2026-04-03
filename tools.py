@@ -251,8 +251,11 @@ class AgentTools:
             print("未能识别到有效内容")
             return
         
-    def qwen_websearch(self, query: str) -> str:
+    def qwen_websearch(self, query: str) :
         """通义千问联网搜索问答"""
+        # ⚠️ 【需要 API KEY】阿里云 DashScope API
+        # 在 .env 文件中配置：DASHSCOPE_API_KEY=your_dashscope_api_key
+        # 申请地址：https://dashscope.aliyuncs.com
         api_key = os.getenv("DASHSCOPE_API_KEY")
         url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
 
@@ -278,12 +281,10 @@ class AgentTools:
         try:
             resp = requests.post(url, headers=headers, json=payload)
             result = resp.json()
-            return result["output"]["text"].strip()
+            print(f"搜索结果：{result['output']['text'].strip()}")
         except Exception as e:
             return f"调用失败：{str(e)}"
     
-    
-        return info
 
     def task_organizer(self, tasks: List[str]):
         """生成格式化的待办清单"""
