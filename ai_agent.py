@@ -132,6 +132,17 @@ class AI_Agent:
                     stream=True,
                 )
                 self._process_response(final_response, final=True)
+        elif tool_name == "qwen_websearch":
+                answer = self.tool.qwen_websearch(**arguments)
+                final_response = self.client.responses.create(
+                model="qwen3.5-flash",
+                input=[
+                {"role": "system", "content": f"搜索结果：{answer}。请根据结果自然回答用户。"},
+                {"role": "user", "content": "回答用户问题"}
+                ],
+                 stream=True
+                )
+                self._process_response(final_response, final=True)
         else:
             print(f"\n[未知工具: {tool_name}]")
         
