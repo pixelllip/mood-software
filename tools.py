@@ -13,7 +13,7 @@ class AgentTools:
     def __init__(self):
         self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
                                            Run_Script, Text_to_Image, Image_Recognition,
-                                           TaskOrganizerTool])
+                                           TaskOrganizerTool,Qwen_WebSearch])
     
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -87,6 +87,7 @@ class AgentTools:
             print(f"【错误】脚本执行异常: {exc}")
             return -1
         
+
     def text_to_image(self, arguments: Dict[str, Any]):
         """根据文本描述生成图片（调用本地 SD WebUI）"""
         import base64
@@ -250,6 +251,38 @@ class AgentTools:
             print("未能识别到有效内容")
             return
         
+    def qwen_websearch(self, query: str) -> str:
+        """通义千问联网搜索问答"""
+        api_key = os.getenv("DASHSCOPE_API_KEY")
+        url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+
+        headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+        }
+
+        payload = {
+        "model": "qwen-flash",
+        "input": {
+            "messages": [
+                {"role": "user", "content": query}
+            ]
+        },
+        "parameters": {
+            "temperature": 0.2,
+            "enable_search": True,
+            "incremental_output": False
+        }
+        }
+
+        try:
+            resp = requests.post(url, headers=headers, json=payload)
+            result = resp.json()
+            return result["output"]["text"].strip()
+        except Exception as e:
+            return f"调用失败：{str(e)}"
+    
+    
         return info
 
     def task_organizer(self, tasks: List[str]):
@@ -315,6 +348,10 @@ class Image_Recognition(BaseModel):
     """多场景图像识别，支持车型、菜品、动物、植物、logo、物体、食材，并流式输出描述"""
     image_path: str = Field(..., description="图片完整路径，例如 C:/images/car.jpg")
     scene: str = Field("car", description="识别场景：car/dish/animal/plant/logo/object/ingredient，默认car")
+
+class Qwen_WebSearch(BaseModel):
+    """通义千问联网搜索问答"""
+    query: str = Field(..., description="用户要搜索或提问的问题")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
