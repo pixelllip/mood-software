@@ -21,6 +21,9 @@ class AgentTools:
 
     def get_weather(self, adcode: str):
         """获取天气信息"""
+        # ⚠️ 【需要 API KEY】高德地图 API
+        # 在 .env 文件中配置：Gaode_API_Key=your_gaode_api_key
+        # 申请地址：https://lbs.amap.com/
         Gaode_API_Key = os.getenv("Gaode_API_Key")
         if not adcode:
             print(f"没有提供城市编码，无法获取天气信息。")
@@ -173,12 +176,16 @@ class AgentTools:
         import base64
         from openai import OpenAI
 
+        # ⚠️ 【需要 API KEY】百度智能云 API
+        # 在 .env 文件中配置：
+        #   BAIDU_API_KEY=your_baidu_api_key
+        #   BAIDU_SECRET_KEY=your_baidu_secret_key
+        # 申请地址：https://cloud.baidu.com/product/imagerecognition
         BAIDU_API_KEY = os.getenv("BAIDU_API_KEY")
         BAIDU_SECRET_KEY = os.getenv("BAIDU_SECRET_KEY")
-        DASHSCOPE_KEY = os.getenv("DASHSCOPE_API_KEY")
 
-        if not all([BAIDU_API_KEY, BAIDU_SECRET_KEY, DASHSCOPE_KEY]):
-            raise Exception("❌ 环境变量缺失，请检查 .env 文件中的 BAIDU_API_KEY、BAIDU_SECRET_KEY、DASHSCOPE_API_KEY")
+        if not all([BAIDU_API_KEY, BAIDU_SECRET_KEY]):
+            raise Exception("❌ 环境变量缺失，请检查 .env 文件中的 BAIDU_API_KEY、BAIDU_SECRET_KEY 是否填写")
 
         # 获取百度Token（和你完全一样）
         def get_baidu_token():
@@ -237,12 +244,6 @@ class AgentTools:
 
         if "error_code" in baidu_result:
             raise Exception(f"❌ 百度识别失败：{baidu_result.get('error_msg', '未知错误')}（错误码：{baidu_result['error_code']}）")
-
-        # 流式AI总结（和你完全一样）
-        client = OpenAI(
-            api_key=DASHSCOPE_KEY,
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1"
-        )
 
         info = baidu_result["result"][0] if (baidu_result.get("result") and len(baidu_result["result"]) > 0) else None
         if not info:
@@ -322,6 +323,7 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
         # 获取 JSON Schema
         schema = model.model_json_schema()
         """print(f"原始 Schema for {model.__name__}:", schema)  # 调试输出，查看原始 Schema"""
+        
         # 1. 提取工具描述 (Tool Description)
         # Pydantic V2 通常会将类文档字符串放入 schema 的顶层 description 中
         # 我们将其弹出，作为工具的 description，避免在 parameters 中重复
