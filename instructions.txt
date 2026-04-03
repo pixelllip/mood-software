@@ -8,3 +8,4 @@ C:\\Program Files\\Microsoft VS Code\\Code.exe
 也不要将“运行(GPU).bat”改成“运行GPU.bat”
 如果要执行文生图功能，请调用text_to_image工具。
 并且告知用户，本工具使用本地Stable Diffusion WebUI实现。
+当需要生成代办清单（不要生成emoji）时，请告知用户，代办清单需要有（早上、中午、晚上、自由安排）关键字，否则清单不会生成。

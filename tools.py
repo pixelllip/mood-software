@@ -1,6 +1,6 @@
 import memory
-from typing import Type,List,TypedDict,Dict,Any
-from pydantic import BaseModel,Field
+from typing import Type, List, TypedDict, Dict, Any
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import subprocess
 import requests
@@ -12,7 +12,8 @@ class AgentTools:
     
     def __init__(self):
         self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
-                                           Run_Script,Text_to_Image,Image_Recognition,Qwen_WebSearch])
+                                           Run_Script, Text_to_Image, Image_Recognition,
+                                           TaskOrganizerTool,Qwen_WebSearch])
     
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -283,6 +284,24 @@ class AgentTools:
     
         return info
 
+    def task_organizer(self, tasks: List[str]):
+        """生成格式化的待办清单"""
+        morning_tasks = [task.replace('早上', '').strip() for task in tasks if '早上' in task]
+        noon_tasks = [task.replace('中午', '').strip() for task in tasks if '中午' in task]
+        evening_tasks = [task.replace('晚上', '').strip() for task in tasks if '晚上' in task]
+        free_tasks = [task for task in tasks if '早上' not in task and '中午' not in task and '晚上' not in task]
+
+        todo_list = ""
+        if morning_tasks:
+            todo_list += "早上做什么：\n" + "\n".join([f"- {task}" for task in morning_tasks]) + "\n"
+        if noon_tasks:
+            todo_list += "中午做什么：\n" + "\n".join([f"- {task}" for task in noon_tasks]) + "\n"
+        if evening_tasks:
+            todo_list += "晚上做什么：\n" + "\n".join([f"- {task}" for task in evening_tasks]) + "\n"
+        if free_tasks:
+            todo_list += "自由安排的事项：\n" + "\n".join([f"- {task}" for task in free_tasks])
+
+        print(f"\n生成的待办清单：\n{todo_list}")
 
 # 1. 定义工具字典结构
 class CustomToolDict(TypedDict):
@@ -299,7 +318,6 @@ class Get_Local_Backlog(BaseModel):
 class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
     adcode: str = Field(..., description="中国城市编码") # <--- 这里写参数的具体含义
-    # 为了演示区别，我稍微修改了字段名，如果你必须用 content 也可以，只要描述不同即可
 
 class Backlog_Read_Range(BaseModel):
     """读取指定日期范围内的对话记录"""
@@ -321,6 +339,10 @@ class Text_to_Image(BaseModel):
     guidance_scale: float = Field(7.0, description="引导尺度，数值越大生成的图片越贴近提示词（默认7.0）")
     seed: int = Field(-1, description="随机种子，设置为-1表示随机，否则设置相同的种子可以复现相同的图片")
 
+class TaskOrganizerTool(BaseModel):
+    """生成格式化的待办清单"""
+    tasks: List[str] = Field(..., description="任务列表")
+
 class Image_Recognition(BaseModel):
     """多场景图像识别，支持车型、菜品、动物、植物、logo、物体、食材，并流式输出描述"""
     image_path: str = Field(..., description="图片完整路径，例如 C:/images/car.jpg")
@@ -337,7 +359,6 @@ def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
         # 获取 JSON Schema
         schema = model.model_json_schema()
         """print(f"原始 Schema for {model.__name__}:", schema)  # 调试输出，查看原始 Schema"""
-        
         # 1. 提取工具描述 (Tool Description)
         # Pydantic V2 通常会将类文档字符串放入 schema 的顶层 description 中
         # 我们将其弹出，作为工具的 description，避免在 parameters 中重复
