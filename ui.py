@@ -39,13 +39,12 @@ class MyWindow(QWidget):
         # ✅ 5. 连接按钮点击
         self.btn_send.clicked.connect(self.emit_custom_signal)
 
-        self.send_shortcut = QShortcut(QKeySequence("Shift+Return"), self)
-        self.send_shortcut.activated.connect(self.btn_send.animateClick)
-
         # ✅ 关键连接：将 AI 的输出信号直接连接到 UI 更新方法
         # 这样就不需要经过 MySlot 来处理 UI 更新了，解耦更清晰
         self.agent.signal.text_output.connect(self.append_ai_text)
         self.agent.signal.is_finished.connect(self.on_ai_finished)
+
+        self.input.installEventFilter(self)  # 安装事件过滤器，捕获 Enter 键
 
     def init_chat_ui(self):
         """初始化聊天界面"""
@@ -183,6 +182,19 @@ class MyWindow(QWidget):
         frame_geometry.moveCenter(center_point)
         # 移动窗口左上角到矩形左上角
         self.move(frame_geometry.topLeft())
+
+    def eventFilter(self, obj, event):
+        if obj is self.input and event.type() == event.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                # Shift + Enter: 允许换行（返回 False 让事件继续传递）
+                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                    return False
+                
+                # 纯 Enter: 触发点击并拦截换行
+                self.btn_send.animateClick()
+                return True # 返回 True 表示事件已处理，不再向下传递
+                
+        return super().eventFilter(obj, event)
 
 if __name__ == "__main__":
     app = QApplication([])
