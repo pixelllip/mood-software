@@ -9,7 +9,6 @@ load_dotenv()
 
 class Backlog:
     def __init__(self,text=None):
-        """### 定义路径对象"""
         base_path = os.getenv("BASE_PATH")
         if not base_path:
             raise EnvironmentError("环境变量 BASE_PATH 未设置或为空")

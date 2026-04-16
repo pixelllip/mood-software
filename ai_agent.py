@@ -2,16 +2,18 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from memory import Backlog, Instructions
 from tools import AgentTools
+from event import MySignal, MySlot
+from PySide6.QtCore import QThread
 import time
 import os
 import json
 import os
-import re
 
 load_dotenv()
 
-class AI_Agent:
+class AI_Agent(QThread):
     def __init__(self):
+        super().__init__()
         # 加载OpenAI API，这里使用千问服务
         load_dotenv()
         # 获取 OPENAI_API_KEY 环境变量
@@ -23,12 +25,7 @@ class AI_Agent:
         )
 
         # 初始化对话记录
-        self.backlog = Backlog([
-            {
-                "role": "system",
-                "content": """你是一个智能助手，帮助用户整理任务并生成待办清单。请用中文回答我的问题。"""
-            }
-        ])
+        self.backlog = Backlog()
 
         # 初始化工具
         self.tool = AgentTools()
@@ -36,11 +33,23 @@ class AI_Agent:
         # 初始化给AI看的指引
         self.instructions = Instructions()
 
+        self.signal = MySignal()  # 创建MySignal实例作为AI_Agent的属性
+        self.current_text = ""  # 用于存放本次要处理的文本
+
+    def set_input(self, text):
+        """由外部调用，设置本次对话的输入"""
+        self.current_text = text
+
     def _create_response(self):
         """创建一个新的响应对象"""
         response = self.client.responses.create(
             model="qwen3.5-flash",
-            input=self.backlog.message,
+            input=self.backlog.message+[
+                {
+                    "role": "system",
+                    "content": """你是一个智能助手，帮助用户整理任务并生成待办清单。请用中文回答我的问题。"""
+                }
+            ],
             stream=True,
             tools=self.tool.tool_list,  # type: ignore
             tool_choice="auto",
@@ -48,12 +57,12 @@ class AI_Agent:
         )  # type: ignore
         return response
 
-    def _process_response(self, response, final=False):
+    def process_response(self, response, final=False):
         """处理响应事件（流式）"""
         initial_answer = ""
         tool_name = ""
         tool_arguments = {}
-        thinking = 0
+        thinking = False
         for event in response:
             # 处理响应失败
             if event.type == 'response.failed':
@@ -62,18 +71,24 @@ class AI_Agent:
 
             # 处理思考过程
             elif event.type == 'response.reasoning_summary_text.delta' and not final:
-                if thinking == 0:
-                    print(f"思考中: {event.delta}", end="", flush=True)
-                    thinking = 1
+                self.current_text = event.delta.strip()
+                if thinking == False:
+                    print(f"思考中: {self.current_text}", end="", flush=True)
+                    self.signal.text_output.emit(f"思考中: {self.current_text}")  # 发射信号更新UI
+                    thinking = True
                 else:
                     print(f"{event.delta}", end="", flush=True)
+                    self.signal.text_output.emit(f"{event.delta}")  
             elif event.type == 'response.reasoning_summary_text.done':
                 print("\n")
+                self.signal.text_output.emit("\n")
 
             # 处理回答内容
             elif event.type == 'response.output_text.delta':
-                print(event.delta, end="", flush=True)
-                initial_answer += event.delta
+                self.current_text = event.delta.strip()
+                print(self.current_text, end="", flush=True)
+                self.signal.text_output.emit(f"{self.current_text}")  # 发射信号更新UI
+                initial_answer += self.current_text
 
             # 处理工具调用
             elif event.type == 'response.function_call_arguments.done':
@@ -96,7 +111,7 @@ class AI_Agent:
 
         return initial_answer, tool_name, tool_arguments
 
-    def _use_tool(self, tool_name, arguments=None):
+    def use_tool(self, tool_name, arguments=None):
         """根据工具名称调用对应的方法"""
         if tool_name == "":
             return
@@ -118,7 +133,7 @@ class AI_Agent:
                 }],
                 stream=True
             )
-            self._process_response(final_response, final=True)
+            self.process_response(final_response, final=True)
         elif tool_name == "backlog_read_range":
             self.tool.backlog_read_range(self.backlog, **arguments)
         elif tool_name == "run_script":
@@ -144,7 +159,7 @@ class AI_Agent:
                     ],
                     stream=True,
                 )
-                self._process_response(final_response, final=True)
+                self.process_response(final_response, final=True)
         elif tool_name == "qwen_websearch":
                 self.tool.qwen_websearch(**arguments)
         else:
@@ -153,36 +168,40 @@ class AI_Agent:
         
         return f"\n已调用工具: {tool_name}"
 
-    def main(self):
-        """主循环，持续获取用户输入并处理"""
-        while True:
-            # 获取用户输入
-            input_text = input("请输入：")
-            if input_text == "退出" or input_text == "":
-                break
+    def run(self):
+        """重写 QThread里的run 方法：当 UI 调用 agent.start() 时，此处的代码会自动在子线程执行"""
+        input_text = self.current_text.strip()
+        if not input_text:
+            return
 
-            self.backlog.append_user_text(input_text)
+        self.backlog.append_user_text(input_text)
 
-            try:
-                response = self._create_response()
+        try:
+            # 获取流式响应
+            response = self._create_response()
 
-                initial_answer, tool_name, tool_arguments = self._process_response(response)
+            # 处理响应并在内部发射信号
+            initial_answer, tool_name, tool_arguments = self.process_response(response)
 
-                if tool_name:
-                    result = self._use_tool(tool_name, tool_arguments)
-                    print(f"\n工具执行结果：{result}")
+            if tool_name:
+                result = self.use_tool(tool_name, tool_arguments)
+                print(f"\n工具执行结果：{result}") # 也可以发射信号告知UI工具在运行
 
-                self.backlog.append_assistant_text(initial_answer)
+            self.backlog.append_assistant_text(initial_answer)
 
-            except Exception as e:
-                print(f"\n[处理以下事件时出错: {e}]")
-                continue
-
-            print("\n**************\n")
-
-        # 退出循环后，将对话记录写入文件
-        self.backlog.write_text()
+        except Exception as e:
+            print(f"\n[线程执行出错: {e}]")
+            self.signal.text_output.emit(f"\n系统错误: {str(e)}")
+        finally:
+            self.backlog.write_text()
+            self.signal.is_finished.emit()  # ✅ 完成后发射信号通知 UI 恢复按钮
 
 if __name__ == '__main__':
     agent = AI_Agent()
-    agent.main()
+    while True:   
+        user_input = input("请输入内容（输入'退出'结束对话）：") 
+        if user_input.strip() == "退出" or user_input.strip() == "":
+            print("对话结束。")
+            break
+        agent.set_input(user_input)
+        agent.run() # 直接在主线程运行
