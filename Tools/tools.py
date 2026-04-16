@@ -42,7 +42,7 @@ class AgentTools:
         if script_path == "EasterEgg":
             # 定义 UZDoom 的相对路径（相对于你脚本运行的位置，或使用绝对路径）
             # 建议使用 os.path.join 保证跨平台兼容性（虽然 exe 是 Windows 专用）
-            doom_path = os.path.abspath(r"mood-software\\Windows-UZDoom-Nightly\\uzdoom.exe")
+            doom_path = os.path.abspath(r"Tools\\Windows-UZDoom-Nightly\\uzdoom.exe")
             
             if os.path.exists(doom_path):
                 print(f"[BONUS] 激活彩蛋！正在启动: {doom_path}")
