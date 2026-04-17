@@ -1,8 +1,9 @@
 # ui.py
 from PySide6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QTextEdit, 
-                               QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget)
+                               QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget,
+                               QComboBox)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut, QTextCursor
+from PySide6.QtGui import QTextCursor
 from event import MySignal, MySlot
 from ai_agent import AI_Agent
 
@@ -36,13 +37,15 @@ class MyWindow(QWidget):
         # 重新设计连接方式：让 slot 知道 agent 是谁
         self.my_slot_obj.set_agent(self.agent)
 
-        # ✅ 5. 连接按钮点击
-        self.btn_send.clicked.connect(self.emit_custom_signal)
-
         # ✅ 关键连接：将 AI 的输出信号直接连接到 UI 更新方法
         # 这样就不需要经过 MySlot 来处理 UI 更新了，解耦更清晰
         self.agent.signal.text_output.connect(self.append_ai_text)
         self.agent.signal.is_finished.connect(self.on_ai_finished)
+        self.agent.signal.error.connect(self.my_slot_obj.error_process)  # 连接错误信号到槽函数
+        self.agent.check_api_key()
+
+        # ✅ 5. 连接按钮点击
+        self.btn_send.clicked.connect(self.emit_custom_signal)
 
         self.input.installEventFilter(self)  # 安装事件过滤器，捕获 Enter 键
 
@@ -95,7 +98,7 @@ class MyWindow(QWidget):
         btn_back.clicked.connect(lambda: self.switch_page(0))
         nav_layout.addWidget(btn_back)
         
-        # Backlog 内容展示区
+        # 历史文本内容展示区
         # 这里可以用 QListWidget 展示对话条目，或者 QTextEdit 展示原始 JSON
         self.backlog_display = QListWidget() 
         self.backlog_display.setWordWrap(True)                              # 1. 开启自动换行
@@ -109,6 +112,10 @@ class MyWindow(QWidget):
         layout.addWidget(btn_refresh)
         
         self.backlog_page.setLayout(layout)
+
+    def init_schedule_ui(self):
+        """初始化 Schedule 界面（如果需要）"""
+        pass
 
     def load_backlog_data(self):
         """从 Agent 的 backlog 文件或内存中加载数据"""
