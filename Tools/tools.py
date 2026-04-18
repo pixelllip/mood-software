@@ -11,7 +11,7 @@ load_dotenv()
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Load_Backlog, 
                                            Run_Script, Text_to_Image, Image_Recognition,
                                            TaskOrganizerTool,Qwen_WebSearch])
     
@@ -32,10 +32,9 @@ class AgentTools:
             result = requests.get(url).json()
             return result
 
-    def backlog_read_range(self, backlog: memory.Backlog, start_date: str, end_date: str):
-        """读取指定日期范围内的对话记录"""
-        results = backlog.read_range(start_date, end_date)
-        print(results)
+    def load_backlog(self, backlog: memory.Backlog, target_date: str):
+        """加载指定日期的对话记录"""
+        backlog.load_backlog(target_date)
 
     def run_script(self, script_path: str, target_path: str = ""):
         """对目标运行指定的脚本文件（支持 Python 和 BAT）"""# --- 新增：彩蛋触发逻辑 ---
@@ -334,10 +333,9 @@ class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
     adcode: str = Field(..., description="中国城市编码") # <--- 这里写参数的具体含义
 
-class Backlog_Read_Range(BaseModel):
-    """读取指定日期范围内的对话记录"""
-    start_date: str = Field(..., description="开始日期")
-    end_date: str = Field(..., description="结束日期")
+class Load_Backlog(BaseModel):
+    """加载指定日期的对话记录"""
+    target_date: str = Field(..., description="目标日期")
 
 class Run_Script(BaseModel):
     """运行指定的脚本文件"""

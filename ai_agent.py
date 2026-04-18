@@ -136,8 +136,8 @@ class AI_Agent(QThread):
                 stream=True
             )
             self.process_response(final_response, final=True)
-        elif tool_name == "backlog_read_range":
-            self.tool.backlog_read_range(self.backlog, **arguments)
+        elif tool_name == "load_backlog":
+            self.tool.load_backlog(self.backlog, **arguments)
         elif tool_name == "run_script":
             self.tool.run_script(**arguments)
         elif tool_name == "text_to_image":

@@ -1,10 +1,11 @@
 # ui.py
 from PySide6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QTextEdit, 
                                QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget,
-                               QComboBox)
-from PySide6.QtCore import Qt
+                               QComboBox, QFrame, QCalendarWidget)
+from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QTextCursor
 from event import MySignal, MySlot
+from memory import Backlog
 from ai_agent import AI_Agent
 
 class MyWindow(QWidget):
@@ -12,21 +13,27 @@ class MyWindow(QWidget):
         super().__init__()
         self.setWindowTitle("我的程序")
 
-        self.stacked_widget = QStackedWidget(self)
-
-        self.mainlayout = QVBoxLayout()
-
-        self.init_chat_ui()
-        self.init_backlog_ui()
-
-        self.stacked_widget.addWidget(self.chat_page)   #默认显示聊天界面
-        self.stacked_widget.addWidget(self.backlog_page)    #第二页是 Backlog 界面
-        self.mainlayout.addWidget(self.stacked_widget)
-        self.setLayout(self.mainlayout) # 设置主布局
-
         # ✅ 1. 创建信号和槽对象
         self.my_signal_obj = MySignal()
         self.my_slot_obj = MySlot()
+
+        self.stacked_widget = QStackedWidget(self)
+
+        self.fun_layout = QVBoxLayout() # 存放实际功能界面
+        self.mainlayout = QHBoxLayout() # 主布局，水平分布导航和功能区
+
+        self.init_navigation_ui()
+        self.init_chat_ui()
+        self.init_backlog_ui()
+        self.init_schedule_ui()
+
+        self.stacked_widget.addWidget(self.chat_page)   #默认显示聊天界面
+        self.stacked_widget.addWidget(self.backlog_page)    #第二页是 历史记录 界面
+        self.stacked_widget.addWidget(self.schedule_page)    #第三页占位，日程安排界面（如果需要）可以在这里添加
+        self.fun_layout.addWidget(self.stacked_widget)
+
+        self.setLayout(self.mainlayout) # 设置主布局
+        self.mainlayout.addLayout(self.fun_layout) # 将功能布局添加到主布局
 
         # ✅ 3. 连接发送的信息到槽
         # 注意：这里需要把 agent 传递给 slot，或者让 slot 能访问到 agent
@@ -49,18 +56,53 @@ class MyWindow(QWidget):
 
         self.input.installEventFilter(self)  # 安装事件过滤器，捕获 Enter 键
 
+    def init_navigation_ui(self):
+        """初始化导航界面（如果需要）"""
+        self.nav_widget = QFrame()
+        self.nav_widget.setFixedWidth(220) # 日历控件较宽，稍微调大宽度
+        self.nav_widget.setStyleSheet("background-color: #f3f3f3; border-right: 1px solid #ddd;")
+
+        nav_layout = QVBoxLayout()
+
+        # --- 1. 日期选择区域 ---
+        date_label = QLabel("选择查询日期:")
+        date_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        nav_layout.addWidget(date_label)
+
+        # 使用 QCalendarWidget (直观的日历)
+        self.calendar = QCalendarWidget()
+        self.calendar.setGridVisible(True)
+        self.calendar.setFixedHeight(200)
+        # 设置默认选择今天
+        self.calendar.setSelectedDate(QDate.currentDate())
+        self.selected_date=self.calendar.setSelectedDate
+        # 当日期改变时触发方法
+        self.calendar.clicked.connect(self.my_slot_obj.on_date_changed)
+        nav_layout.addWidget(self.calendar)
+
+        btn_go_backlog = QPushButton("聊天")
+        btn_go_backlog.clicked.connect(lambda: self.switch_page(0))
+        nav_layout.addWidget(btn_go_backlog)
+
+        btn_back = QPushButton("历史记录")
+        btn_back.clicked.connect(lambda: self.switch_page(1))
+        nav_layout.addWidget(btn_back)
+
+        btn_schedule = QPushButton("日程安排")
+        btn_schedule.clicked.connect(lambda: self.switch_page(2))
+        nav_layout.addWidget(btn_schedule)
+
+        self.mainlayout.addLayout(nav_layout) # 将导航布局添加到主布局
+        nav_layout.addStretch()
+
     def init_chat_ui(self):
         """初始化聊天界面"""
         self.chat_page = QWidget()  # 聊天界面容器
-        layout = QVBoxLayout()  # 聊天界面布局
+        layout = QVBoxLayout()  # 聊天界面主布局
         
         # 顶部导航栏
         nav_layout = QHBoxLayout()
         nav_layout.addWidget(QLabel("AI 聊天"))
-        btn_go_backlog = QPushButton("查看历史对话记录")
-        btn_go_backlog.clicked.connect(lambda: self.switch_page(1))
-        nav_layout.addWidget(btn_go_backlog)
-
         layout.addLayout(nav_layout)
 
         # 聊天显示区和输入区
@@ -94,40 +136,55 @@ class MyWindow(QWidget):
         # 顶部导航栏
         nav_layout = QHBoxLayout()
         nav_layout.addWidget(QLabel("历史对话记录"), alignment=Qt.AlignmentFlag.AlignCenter)
-        btn_back = QPushButton("返回聊天")
-        btn_back.clicked.connect(lambda: self.switch_page(0))
-        nav_layout.addWidget(btn_back)
         
         # 历史文本内容展示区
         # 这里可以用 QListWidget 展示对话条目，或者 QTextEdit 展示原始 JSON
         self.backlog_display = QListWidget() 
         self.backlog_display.setWordWrap(True)                              # 1. 开启自动换行
         self.backlog_display.setResizeMode(QListWidget.ResizeMode.Adjust)   # 2. 调整调整调整模式，确保宽度变化时内部条目重新计算高度
-        
-        btn_refresh = QPushButton("刷新记录")
-        btn_refresh.clicked.connect(self.load_backlog_data)
 
         layout.addLayout(nav_layout)
         layout.addWidget(self.backlog_display)
-        layout.addWidget(btn_refresh)
         
         self.backlog_page.setLayout(layout)
 
     def init_schedule_ui(self):
         """初始化 Schedule 界面（如果需要）"""
-        pass
+        self.schedule_page = QWidget()  # Schedule界面容器
+        layout = QVBoxLayout()
+        nav_layout = QHBoxLayout()
+        nav_layout.addWidget(QLabel("日程安排"), alignment=Qt.AlignmentFlag.AlignCenter)
+
+        self.schedule_display = QTextEdit()
+        self.schedule_display.setReadOnly(True)
+
+        layout.addLayout(nav_layout)
+        layout.addWidget(self.schedule_display)
+        self.schedule_page.setLayout(layout)
 
     def load_backlog_data(self):
-        """从 Agent 的 backlog 文件或内存中加载数据"""
+        """从 Agent 的 backlog 文件中加载数据"""
+        self.calendar.clicked.connect(self.load_backlog_data)  # 确保每次点击日期都会刷新数据
         self.backlog_display.clear()
-        # 假设你的 agent 有个 backlog 列表
-        backlog = self.agent.backlog
+        # load_backlog 返回的是字典: {"文件夹/文件名.json": [msg1, msg2, ...]}
+        backlog_dict = self.agent.backlog.load_backlog(self.calendar.selectedDate().toString("yyyy-MM-dd"))
+        
+        if isinstance(backlog_dict, str):  # 错误处理（如目录不存在）
+            self.backlog_display.addItem(backlog_dict)
+            return
+
         formatted_list = []
-        for msg in backlog.message:  # 假设 backlog.message 是一个包含对话条目的列表
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            # 格式化成类似 "user: 你好" 的字符串
-            formatted_list.append(f"{role}: {content}")
+        
+        # 遍历字典的每一个文件内容
+        for file_key, messages in (backlog_dict or {}).items():
+            # 如果你想区分文件，可以加个分割线
+            formatted_list.append(f"--- File: {file_key} ---")
+            
+            for msg in messages:  
+                role = msg.get("role", "unknown")
+                content = msg.get("content", "")
+                formatted_list.append(f"{role}: {content}")
+                
         self.backlog_display.addItems(formatted_list)
         
     def switch_page(self, index):

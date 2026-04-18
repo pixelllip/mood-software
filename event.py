@@ -35,3 +35,8 @@ class MySlot(QObject):
         # ✅ 关键：使用 exec() 显示模态对话框
         # exec() 会阻塞代码执行，直到用户点击按钮，这样窗口就不会瞬间消失
         msg_box.exec() 
+
+    @Slot(int, str)
+    def on_date_changed(self, date):
+        print(f"日期改变了: {date.toString()}") # 调试用：确认槽函数被调用
+        return date
