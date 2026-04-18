@@ -1,17 +1,17 @@
 # ui.py
 from PySide6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QTextEdit, 
                                QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget,
-                               QComboBox, QFrame, QCalendarWidget)
+                               QFrame, QCalendarWidget)
 from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QTextCursor
 from event import MySignal, MySlot
-from memory import Backlog
 from ai_agent import AI_Agent
 
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("我的程序")
+        self.resize(800,600)
 
         # ✅ 1. 创建信号和槽对象
         self.my_signal_obj = MySignal()
@@ -33,7 +33,7 @@ class MyWindow(QWidget):
         self.fun_layout.addWidget(self.stacked_widget)
 
         self.setLayout(self.mainlayout) # 设置主布局
-        self.mainlayout.addLayout(self.fun_layout) # 将功能布局添加到主布局
+        self.mainlayout.addLayout(self.fun_layout,4) # 将功能布局添加到主布局
 
         # ✅ 3. 连接发送的信息到槽
         # 注意：这里需要把 agent 传递给 slot，或者让 slot 能访问到 agent
@@ -58,10 +58,6 @@ class MyWindow(QWidget):
 
     def init_navigation_ui(self):
         """初始化导航界面（如果需要）"""
-        self.nav_widget = QFrame()
-        self.nav_widget.setFixedWidth(220) # 日历控件较宽，稍微调大宽度
-        self.nav_widget.setStyleSheet("background-color: #f3f3f3; border-right: 1px solid #ddd;")
-
         nav_layout = QVBoxLayout()
 
         # --- 1. 日期选择区域 ---
@@ -92,8 +88,8 @@ class MyWindow(QWidget):
         btn_schedule.clicked.connect(lambda: self.switch_page(2))
         nav_layout.addWidget(btn_schedule)
 
-        self.mainlayout.addLayout(nav_layout) # 将导航布局添加到主布局
-        nav_layout.addStretch()
+        self.mainlayout.addLayout(nav_layout,1) # 将导航布局添加到主布局
+        nav_layout.addStretch() # 将所有加入的功能置顶
 
     def init_chat_ui(self):
         """初始化聊天界面"""

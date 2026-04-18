@@ -1,6 +1,6 @@
 # event.py
 from PySide6.QtCore import QObject, Signal, Slot, Qt
-from PySide6.QtWidgets import QMessageBox, QWidget
+from PySide6.QtWidgets import QMessageBox
 
 class MySignal(QObject):
     is_finished = Signal()
