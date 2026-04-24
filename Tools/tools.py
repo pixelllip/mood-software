@@ -12,7 +12,7 @@ load_dotenv()
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Load_Backlog, 
                                            Run_Script, Text_to_Image, Image_Recognition,
                                            TaskOrganizerTool,Qwen_WebSearch,StudentScoreQuery
                                            ,StudentScoreAdd,StudentScoreDelete])
