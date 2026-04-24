@@ -26,11 +26,13 @@ class MyWindow(QWidget):
         self.init_chat_ui()
         self.init_backlog_ui()
         self.init_schedule_ui()
-
+        self.init_score_ui()
+        
         self.stacked_widget.addWidget(self.chat_page)   #默认显示聊天界面
         self.stacked_widget.addWidget(self.backlog_page)    #第二页是 历史记录 界面
         self.stacked_widget.addWidget(self.schedule_page)    #第三页占位，日程安排界面（如果需要）可以在这里添加
         self.fun_layout.addWidget(self.stacked_widget)
+        self.stacked_widget.addWidget(self.score_page)
 
         self.setLayout(self.mainlayout) # 设置主布局
         self.mainlayout.addLayout(self.fun_layout,4) # 将功能布局添加到主布局
@@ -87,6 +89,10 @@ class MyWindow(QWidget):
         btn_schedule = QPushButton("日程安排")
         btn_schedule.clicked.connect(lambda: self.switch_page(2))
         nav_layout.addWidget(btn_schedule)
+        
+        btn_score = QPushButton("成绩管理")
+        btn_score.clicked.connect(lambda: self.switch_page(3))
+        nav_layout.addWidget(btn_score)
 
         self.mainlayout.addLayout(nav_layout,1) # 将导航布局添加到主布局
         nav_layout.addStretch() # 将所有加入的功能置顶
@@ -157,7 +163,83 @@ class MyWindow(QWidget):
         layout.addLayout(nav_layout)
         layout.addWidget(self.schedule_display)
         self.schedule_page.setLayout(layout)
+    
+    def init_score_ui(self):
+        """初始化成绩管理界面"""
+        from tools import AgentTools
+        self.score_page = QWidget()
+        layout = QVBoxLayout()
+    
+        title = QLabel("成绩管理")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+    
+        from PySide6.QtWidgets import QTabWidget, QFormLayout, QLineEdit, QPushButton, QTextEdit, QLabel as QLabel2
+        
+        tabs = QTabWidget()
 
+        query_widget = QWidget()
+        query_layout = QVBoxLayout()
+        form = QFormLayout()
+        self.query_sid = QLineEdit()
+        self.query_name = QLineEdit()
+        form.addRow("学号:", self.query_sid)
+        form.addRow("姓名:", self.query_name)
+        query_btn = QPushButton("查询")
+        self.query_result = QTextEdit()
+        self.query_result.setReadOnly(True)
+        query_layout.addLayout(form)
+        query_layout.addWidget(query_btn)
+        query_layout.addWidget(self.query_result)
+        query_widget.setLayout(query_layout)
+        
+        # 查询按钮点击事件（放在类的方法中，后面定义）
+        query_btn.clicked.connect(self.on_query_score)
+    
+        add_widget = QWidget()
+        add_layout = QVBoxLayout()
+        add_form = QFormLayout()
+        self.add_class = QLineEdit()
+        self.add_sid = QLineEdit()
+        self.add_name = QLineEdit()
+        self.add_math = QLineEdit()
+        self.add_se = QLineEdit()
+        self.add_prog = QLineEdit()
+        add_form.addRow("班级ID:", self.add_class)
+        add_form.addRow("学号:", self.add_sid)
+        add_form.addRow("姓名:", self.add_name)
+        add_form.addRow("高数:", self.add_math)
+        add_form.addRow("软件工程:", self.add_se)
+        add_form.addRow("程序设计:", self.add_prog)
+        add_btn = QPushButton("添加")
+        self.add_result = QLabel2()
+        add_layout.addLayout(add_form)
+        add_layout.addWidget(add_btn)
+        add_layout.addWidget(self.add_result)
+        add_widget.setLayout(add_layout)
+        add_btn.clicked.connect(self.on_add_score)
+    
+        # ---- 删除页 ----
+        del_widget = QWidget()
+        del_layout = QVBoxLayout()
+        del_form = QFormLayout()
+        self.del_sid = QLineEdit()
+        del_form.addRow("学号:", self.del_sid)
+        del_btn = QPushButton("删除")
+        self.del_result = QLabel2()
+        del_layout.addLayout(del_form)
+        del_layout.addWidget(del_btn)
+        del_layout.addWidget(self.del_result)
+        del_widget.setLayout(del_layout)
+        del_btn.clicked.connect(self.on_delete_score)
+        
+        tabs.addTab(query_widget, "查询")
+        tabs.addTab(add_widget, "添加")
+        tabs.addTab(del_widget, "删除")
+    
+        layout.addWidget(tabs)
+        self.score_page.setLayout(layout)
+    
     def load_backlog_data(self):
         """从 Agent 的 backlog 文件中加载数据"""
         self.calendar.clicked.connect(self.load_backlog_data)  # 确保每次点击日期都会刷新数据
@@ -232,6 +314,55 @@ class MyWindow(QWidget):
         """AI回复结束时，告诉用户回复完成"""
         self.label.setText("AI 回复完成")
         self.btn_send.setEnabled(True) # 重新启用按钮
+    
+    def on_query_score(self):
+        from tools import AgentTools
+        tools = AgentTools()
+        student_id = self.query_sid.text().strip()
+        name = self.query_name.text().strip()
+        if not student_id and not name:
+            self.query_result.setText("请填写学号或姓名")
+            return
+    # 为了避免阻塞 UI，使用 QThread（简单起见，先直接调用，因为查询通常很快）
+    # 如果你担心阻塞，可以像 AI_Agent 一样用线程，但推荐先用同步方式
+        try:
+            result = tools.studentscorequery("query", student_id=student_id, name=name)
+            self.query_result.setText(str(result))
+        except Exception as e:
+            self.query_result.setText(f"查询失败: {e}")
+
+    def on_add_score(self):
+        from tools import AgentTools
+        tools = AgentTools()
+        try:
+            class_id = int(self.add_class.text().strip())
+            student_id = self.add_sid.text().strip()
+            name = self.add_name.text().strip()
+            scores = {
+                "高数": float(self.add_math.text().strip() or 0),
+                "软件工程": float(self.add_se.text().strip() or 0),
+                "程序设计": float(self.add_prog.text().strip() or 0)
+            }
+            if not student_id or not name:
+                self.add_result.setText("学号和姓名不能为空")
+                return
+            result = tools.studentscoreadd(class_id, student_id, name, scores)
+            self.add_result.setText(str(result))
+        except Exception as e:
+            self.add_result.setText(f"添加失败: {e}")
+
+    def on_delete_score(self):
+        from tools import AgentTools
+        tools = AgentTools()
+        student_id = self.del_sid.text().strip()
+        if not student_id:
+            self.del_result.setText("学号不能为空")
+            return
+        try:
+            result = tools.studentscoredelete(student_id)
+            self.del_result.setText(str(result))
+        except Exception as e:
+            self.del_result.setText(f"删除失败: {e}")
 
     def center(self):
         # 得到一个表示窗口框架的矩形
