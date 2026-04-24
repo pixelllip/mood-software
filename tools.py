@@ -1,5 +1,6 @@
 import memory
 from typing import Type, List, TypedDict, Dict, Any
+from typing import Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import subprocess
@@ -13,7 +14,8 @@ class AgentTools:
     def __init__(self):
         self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Backlog_Read_Range, 
                                            Run_Script, Text_to_Image, Image_Recognition,
-                                           TaskOrganizerTool,Qwen_WebSearch])
+                                           TaskOrganizerTool,Qwen_WebSearch,StudentScoreQuery
+                                           ,StudentScoreAdd,StudentScoreDelete])
     
     def get_local_backlog(self, backlog: memory.Backlog):
         """获取对话记录"""
@@ -304,6 +306,64 @@ class AgentTools:
             todo_list += "自由安排的事项：\n" + "\n".join([f"- {task}" for task in free_tasks])
 
         print(f"\n生成的待办清单：\n{todo_list}")
+    
+
+    def call_score_api(self, action, student_id=None, name=None, data=None):
+        """调用成绩管理系统的 API，支持查询、添加、删除学生信息，以及获取统计数据"""
+        import requests
+        base_url = "http://127.0.0.1:8000"
+        try:
+            if action == "query":
+                return requests.get(f"{base_url}/students/", params={"student_id": student_id, "name": name}, timeout=5).json()
+            elif action == "add":
+                return requests.post(f"{base_url}/students/", json=data, timeout=5).json()
+            elif action == "delete":
+                return requests.delete(f"{base_url}/students/{student_id}", timeout=5).json()
+            elif action == "avg":
+                return requests.get(f"{base_url}/stats/grade-avg", timeout=5).json()
+            elif action == "classavg":
+                return requests.get(f"{base_url}/stats/class-avg", timeout=5).json()
+            elif action == "rank":
+                return requests.get(f"{base_url}/stats/grade-sort", timeout=5).json()
+            elif action == "classrank":
+                return requests.get(f"{base_url}/stats/class-sort", timeout=5).json()
+            elif action == "seg":
+                return requests.get(f"{base_url}/stats/grade-seg", timeout=5).json()
+            elif action == "classseg":
+                return requests.get(f"{base_url}/stats/class-seg", timeout=5).json()
+            else:
+                return {"code": 400, "msg": "不支持的操作"}
+        except Exception as e:
+            return {"code": -1, "msg": f"接口失败：{str(e)}"}
+
+
+    def _format_score_result(self, result: dict) -> str:
+        """将API返回的原始JSON简单格式化（避免报错）"""
+        if result.get("code") and result.get("code") != 200:
+            return f"❌ 操作失败：{result.get('msg', '未知错误')}"
+        # 否则直接返回JSON字符串（方便查看原始数据）
+        import json
+        return f"查询结果：{json.dumps(result, ensure_ascii=False, indent=2)}"
+
+
+    def studentscorequery(self, action: str, student_id: Optional[str] = None, name: Optional[str] = None):
+        """查询学生成绩、班级平均分、年级排名、分段统计"""
+        result = self.call_score_api(action, student_id, name)
+        return self._format_score_result(result) 
+    
+
+    def studentscoreadd(self, class_id: int, student_id: str, name: str, scores: Dict[str, float]):
+        """添加学生成绩信息"""
+        data = {"class_id": class_id, "student_id": student_id, "name": name, "scores": scores}
+        result = self.call_score_api("add", data=data)
+        return result.get("msg", "添加成功") if result.get("code") == 200 else f"添加失败：{result}"
+
+
+    def studentscoredelete(self, student_id: str):
+        """删除学生成绩"""
+        result = self.call_score_api("delete", student_id=student_id)
+        return result.get("msg", "删除成功") if result.get("code") == 200 else f"删除失败：{result}"
+
 
 # 1. 定义工具字典结构
 class CustomToolDict(TypedDict):
@@ -353,6 +413,24 @@ class Image_Recognition(BaseModel):
 class Qwen_WebSearch(BaseModel):
     """通义千问联网搜索问答"""
     query: str = Field(..., description="用户要搜索或提问的问题")
+
+
+class StudentScoreQuery(BaseModel):
+    """查询学生成绩、班级平均分、年级排名、分段统计"""
+    action: str = Field(..., description="操作：query/avg/classavg/rank/classrank/seg/classseg")
+    student_id: Optional[str] = Field(None, description="学号")
+    name: Optional[str] = Field(None, description="姓名")
+
+class StudentScoreAdd(BaseModel):
+    """添加学生成绩信息"""
+    class_id: int = Field(..., description="班级ID")
+    student_id: str = Field(..., description="学号")
+    name: str = Field(..., description="姓名")
+    scores: Dict[str, float] = Field(..., description="成绩：{'高数':xx,'软件工程':xx,'程序设计':xx}")
+
+class StudentScoreDelete(BaseModel):
+    """删除学生成绩"""
+    student_id: str = Field(..., description="要删除的学生学号")
 
 # 3. 批量转换函数 (修改点：分离描述来源)
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
