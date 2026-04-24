@@ -1,10 +1,11 @@
 from openai import OpenAI
 from dotenv import load_dotenv
 from memory import Backlog, Instructions
-from tools import AgentTools
-from event import MySignal, MySlot
+from Tools.tools import AgentTools
+from event import MySignal
 from PySide6.QtCore import QThread
 import time
+import sys
 import os
 import json
 import os
@@ -14,6 +15,8 @@ load_dotenv()
 class AI_Agent(QThread):
     def __init__(self):
         super().__init__()
+        self.signal = MySignal()  # 创建MySignal实例作为AI_Agent的属性
+
         # 加载OpenAI API，这里使用千问服务
         load_dotenv()
         # 获取 OPENAI_API_KEY 环境变量
@@ -33,9 +36,8 @@ class AI_Agent(QThread):
         # 初始化给AI看的指引
         self.instructions = Instructions()
 
-        self.signal = MySignal()  # 创建MySignal实例作为AI_Agent的属性
         self.current_text = ""  # 用于存放本次要处理的文本
-
+        
     def set_input(self, text):
         """由外部调用，设置本次对话的输入"""
         self.current_text = text
@@ -134,8 +136,8 @@ class AI_Agent(QThread):
                 stream=True
             )
             self.process_response(final_response, final=True)
-        elif tool_name == "backlog_read_range":
-            self.tool.backlog_read_range(self.backlog, **arguments)
+        elif tool_name == "load_backlog":
+            self.tool.load_backlog(self.backlog, **arguments)
         elif tool_name == "run_script":
             self.tool.run_script(**arguments)
         elif tool_name == "text_to_image":
@@ -195,6 +197,18 @@ class AI_Agent(QThread):
         finally:
             self.backlog.write_text()
             self.signal.is_finished.emit()  # ✅ 完成后发射信号通知 UI 恢复按钮
+
+    def check_api_key(self):
+        openai_api_key=os.getenv("OPENAI_API_KEY")
+        base_path=os.getenv("BASE_PATH")
+        if not openai_api_key or openai_api_key=="":
+            print("""请先在软件目录创建.env文件，然后在其中填入必须的信息：\n
+                  OPENAI_API_KEY=*你的支持OPENAI API的密钥；""")
+            self.signal.error.emit("""请先在软件目录创建.env文件，然后在其中填入：\nOPENAI_API_KEY=*你的OPENAI API的密钥*""")
+        if not base_path or base_path=="":
+            print("""请先在软件目录创建.env文件，然后在其中填入: BASE_PATH=*你希望将生成的文件放置于何处*""")
+            self.signal.error.emit("""请先在软件目录创建.env文件，然后在其中填入: \nBASE_PATH=*你希望将生成的文件放置于何处*""")
+            return False
 
 if __name__ == '__main__':
     agent = AI_Agent()

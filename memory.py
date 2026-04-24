@@ -46,48 +46,37 @@ class Backlog:
         json_data = json.dumps(self.message, ensure_ascii=False, indent=4)
         self.path.write_text(json_data, encoding="utf-8")
 
-    def read_range(self, start_date, end_date):
+    def load_backlog(self, target_date):
         """
         ### 读取指定日期范围内的所有对话
         Args:
-            start_date: 字符串格式 'YYYY-MM-DD'
-            end_date: 字符串格式 'YYYY-MM-DD'
+            target_date (str): 目标日期，格式为 'YYYY-MM-DD'
         Returns:
             包含所有符合条件对话的字典，键为文件名，值为内容
         """
         results = {}
-        
-        # 将输入字符串转为 date 对象方便比较
-        start = datetime.strptime(start_date, '%Y-%m-%d').date()
-        end = datetime.strptime(end_date, '%Y-%m-%d').date()
 
         # 遍历 Backlog 目录下所有的日期文件夹
-        backlog_path = self.base_path / "Backlog"
+        backlog_path = Path(self.base_path).joinpath("Backlog", target_date)
         if not backlog_path.exists():
             return "Backlog 目录不存在"
 
-        print(f"\n[读取 {start_date} 至 {end_date} 的对话记录]:")
+        print(f"\n[读取 {target_date} 的对话记录]:")
         
-        for date_dir in backlog_path.iterdir():
-            if date_dir.is_dir():
+        # 读取该文件夹下所有的 .json 文件
+        for json_file in backlog_path.glob("*.json"):
+            with open(json_file, 'r', encoding='utf-8') as f:
                 try:
-                    # 尝试将文件夹名解析为日期
-                    current_dir_date = datetime.strptime(date_dir.name, '%Y-%m-%d').date()
-                    
-                    # 检查是否在范围内
-                    if start <= current_dir_date <= end:
-                        # 读取该文件夹下所有的 .json 文件
-                        for json_file in date_dir.glob("*.json"):
-                            with open(json_file, 'r', encoding='utf-8') as f:
-                                file_key=f"{date_dir.name}/{json_file.name}"
-                                message = json.load(f)
-                                results[file_key] = message
-                                print(f"已读取: {file_key}")
-                                for msg in message:
-                                    print(f"  [{msg['role']}]: {msg['content']}")
-                except ValueError:
-                    # 跳过名称不符合日期格式的文件夹
-                    continue
+                    file_key=f"{backlog_path.name}/{json_file.name}"
+                    raw_messages = json.load(f)
+                    filtered_messages = [msg for msg in raw_messages if msg.get("role") != "system"]
+                    results[file_key] = filtered_messages
+                    print(f"已读取: {file_key}")
+                    for msg in filtered_messages:
+                        print(f"  [{msg['role']}]: {msg['content']}")
+                except Exception as e:
+                    print(f"【错误】读取 {json_file} 失败: {e}")
+        return results
         
 class Instructions:
     def __init__(self):
