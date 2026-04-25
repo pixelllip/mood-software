@@ -6,6 +6,7 @@ from PySide6.QtCore import Qt, QDate
 from PySide6.QtGui import QTextCursor
 from event import MySignal, MySlot
 from ai_agent import AI_Agent
+import re
 
 class MyWindow(QWidget):
     def __init__(self):
@@ -42,6 +43,7 @@ class MyWindow(QWidget):
         # 为了简单演示，我们假设 agent 是全局的或者通过其他方式注入
         # 更优雅的方式是让 MySlot 持有 agent 引用，见下方 event.py 修改
         self.agent = AI_Agent()  # 在窗口中创建 agent 实例，方便管理
+        self.signal = MySignal()
         
         # 重新设计连接方式：让 slot 知道 agent 是谁
         self.my_slot_obj.set_agent(self.agent)
@@ -166,7 +168,6 @@ class MyWindow(QWidget):
     
     def init_score_ui(self):
         """初始化成绩管理界面"""
-        from tools import AgentTools
         self.score_page = QWidget()
         layout = QVBoxLayout()
     
@@ -181,8 +182,8 @@ class MyWindow(QWidget):
         query_widget = QWidget()
         query_layout = QVBoxLayout()
         form = QFormLayout()
-        self.query_sid = QLineEdit()
-        self.query_name = QLineEdit()
+        self.query_sid = QLineEdit()    # 学号输入框
+        self.query_name = QLineEdit()   # 姓名输入框
         form.addRow("学号:", self.query_sid)
         form.addRow("姓名:", self.query_name)
         query_btn = QPushButton("查询")
@@ -202,15 +203,11 @@ class MyWindow(QWidget):
         self.add_class = QLineEdit()
         self.add_sid = QLineEdit()
         self.add_name = QLineEdit()
-        self.add_math = QLineEdit()
-        self.add_se = QLineEdit()
-        self.add_prog = QLineEdit()
+        self.add_scores = QTextEdit()
         add_form.addRow("班级ID:", self.add_class)
         add_form.addRow("学号:", self.add_sid)
         add_form.addRow("姓名:", self.add_name)
-        add_form.addRow("高数:", self.add_math)
-        add_form.addRow("软件工程:", self.add_se)
-        add_form.addRow("程序设计:", self.add_prog)
+        add_form.addRow("成绩 (格式: 课程:分数, 每行一个):", self.add_scores)
         add_btn = QPushButton("添加")
         self.add_result = QLabel2()
         add_layout.addLayout(add_form)
@@ -316,55 +313,58 @@ class MyWindow(QWidget):
         self.btn_send.setEnabled(True) # 重新启用按钮
     
     def on_query_score(self):
-        from tools import AgentTools
-        tools = AgentTools()
+        """点击“查询”按钮查询学生成绩，名字可以模糊搜索"""
         student_id = self.query_sid.text().strip()
         name = self.query_name.text().strip()
         if not student_id and not name:
             self.query_result.setText("请填写学号或姓名")
-            return
-    # 为了避免阻塞 UI，使用 QThread（简单起见，先直接调用，因为查询通常很快）
-    # 如果你担心阻塞，可以像 AI_Agent 一样用线程，但推荐先用同步方式
-        try:
-            result = tools.studentscorequery("query", student_id=student_id, name=name)
-            self.query_result.setText(str(result))
-        except Exception as e:
-            self.query_result.setText(f"查询失败: {e}")
+            return   
+        result=self.my_slot_obj.on_query_score(student_id, name)
+        display_text = ""
+        for s in result:
+            # 提取各个属性，分类拼接
+            info = f"【姓名】: {s.name:<8} 【学号】: {s.student_id}\n"
+            score_items = [f"{k:<8}: {v:>6.1f}" for k, v in s.scores.items()]
+            scores = "【成绩】:\n\t" + ",\n\t".join(score_items)
+            display_text += info + scores + "\n" + "-"*30 + "\n"
+    
+        self.query_result.setText(display_text)
 
     def on_add_score(self):
-        from tools import AgentTools
-        tools = AgentTools()
-        try:
-            class_id = int(self.add_class.text().strip())
-            student_id = self.add_sid.text().strip()
-            name = self.add_name.text().strip()
-            scores = {
-                "高数": float(self.add_math.text().strip() or 0),
-                "软件工程": float(self.add_se.text().strip() or 0),
-                "程序设计": float(self.add_prog.text().strip() or 0)
-            }
-            if not student_id or not name:
-                self.add_result.setText("学号和姓名不能为空")
-                return
-            result = tools.studentscoreadd(class_id, student_id, name, scores)
-            self.add_result.setText(str(result))
-        except Exception as e:
-            self.add_result.setText(f"添加失败: {e}")
+        """处理成绩管理界面“添加”按钮的点击事件"""
+        # 1. 获取前端输入的数据
+        class_id_str = self.add_class.text().strip()
+        sid = self.add_sid.text().strip()
+        name = self.add_name.text().strip()
+        scores_raw = self.add_scores.toPlainText().strip()
+
+        msg=""
+
+        # 2. 基础数据校验
+        if not sid or not name:
+            self.add_result.setText("错误：学号和姓名不能为空！")
+            return
+
+        # 3. 解析成绩字符串 (格式: 课程:分数)
+        new_scores = {}
+        for line in scores_raw.splitlines():
+            match = re.split(r'[:：=]', line, maxsplit=1)
+            if len(match) == 2:
+                course, score = match
+            try:
+                new_scores[course.strip()] = float(score.strip())
+                msg+=f"{self.my_slot_obj.on_add_score(int(class_id_str), sid, name, new_scores)}\n"
+            except ValueError:
+                self.add_result.setText("请检查所有选项是否填写恰当！")
+                continue
+        
+        self.add_result.setText(msg)
 
     def on_delete_score(self):
-        from tools import AgentTools
-        tools = AgentTools()
-        student_id = self.del_sid.text().strip()
-        if not student_id:
-            self.del_result.setText("学号不能为空")
-            return
-        try:
-            result = tools.studentscoredelete(student_id)
-            self.del_result.setText(str(result))
-        except Exception as e:
-            self.del_result.setText(f"删除失败: {e}")
+        pass
 
     def center(self):
+        """将窗口居中显示"""
         # 得到一个表示窗口框架的矩形
         frame_geometry = self.frameGeometry()
         # 获取屏幕中心点
@@ -375,6 +375,7 @@ class MyWindow(QWidget):
         self.move(frame_geometry.topLeft())
 
     def eventFilter(self, obj, event):
+        """捕捉Enter键，触发发送按钮点击"""
         if obj is self.input and event.type() == event.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
                 # Shift + Enter: 允许换行（返回 False 让事件继续传递）

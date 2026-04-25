@@ -1,6 +1,7 @@
 # event.py
 from PySide6.QtCore import QObject, Signal, Slot, Qt
 from PySide6.QtWidgets import QMessageBox
+from Tools.Score_Management.services import StudentScoreService
 
 class MySignal(QObject):
     is_finished = Signal()
@@ -8,6 +9,7 @@ class MySignal(QObject):
     text_output = Signal(str) 
     key_pressed = Signal(int, str)
     error = Signal(str)
+    add_score_msg = Signal(str)
     
     def __init__(self):
         super().__init__()
@@ -16,6 +18,7 @@ class MySlot(QObject):
     def __init__(self):
         super().__init__()
         self.agent = None
+        self.signal=MySignal()
     
     def set_agent(self, agent):
         self.agent = agent
@@ -40,3 +43,19 @@ class MySlot(QObject):
     def on_date_changed(self, date):
         print(f"日期改变了: {date.toString()}") # 调试用：确认槽函数被调用
         return date
+    
+    def on_query_score(self,student_id, name):
+        """查询学生成绩，名字支持模糊搜索"""
+        to_search = StudentScoreService()
+        query_result = to_search.get_student_by_id(student_id)
+        if not query_result:
+            query_result = to_search.get_students_by_name(name)
+            if not query_result:
+                query_result = [s for s in to_search.students if name.lower() in s.name.lower()]
+        return query_result
+    
+    def on_add_score(self, class_id, student_id, name, scores):
+        """添加或更新学生成绩"""
+        to_add = StudentScoreService()
+        msg=to_add.add_score(class_id,student_id,name,scores)
+        return msg   # 返回可能的错误提醒
