@@ -12,7 +12,7 @@ load_dotenv()
 class AgentTools:
     
     def __init__(self):
-        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Load_Backlog, 
+        self.tool_list = build_tools_list([Get_Local_Backlog, Get_Weather, Get_Traffic, Load_Backlog, 
                                            Run_Script, Text_to_Image, Image_Recognition,
                                            TaskOrganizerTool,Qwen_WebSearch])
     
@@ -30,8 +30,75 @@ class AgentTools:
             print(f"没有提供城市编码，无法获取天气信息。")
         else:
             url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={adcode}&key={Gaode_API_Key}"
-            result = requests.get(url).json()
+            result = requests.get(url, timeout=10).json()
             return result
+
+    def get_traffic(self, origin: str, destination: str, strategy: int = 0):
+        """
+        通过高德驾车路径规划 API 粗略估计路况。
+
+        origin/destination 格式："lng,lat"
+        返回：{traffic_level, duration_sec, tmcs_status_counts, raw}
+        """
+        Gaode_API_Key = os.getenv("Gaode_API_Key")
+        if not Gaode_API_Key:
+            raise Exception("❌ 环境变量缺失：Gaode_API_Key")
+        if not origin or not destination:
+            raise ValueError("origin/destination 不能为空，格式应为 'lng,lat'")
+
+        url = "https://restapi.amap.com/v3/direction/driving"
+        params = {
+            "origin": origin,
+            "destination": destination,
+            "strategy": str(strategy),
+            "extensions": "all",  # 尝试拿 tmcs；若账号/接口不返回则自动降级
+            "key": Gaode_API_Key,
+        }
+        raw = requests.get(url, params=params, timeout=10).json()
+
+        def safe_int(v):
+            try:
+                return int(float(v))
+            except Exception:
+                return None
+
+        duration_sec = None
+        tmcs_status_counts: Dict[str, int] = {}
+        traffic_level = "unknown"
+
+        route = (raw or {}).get("route") or {}
+        paths = route.get("paths") or []
+        if paths:
+            duration_sec = safe_int((paths[0] or {}).get("duration"))
+
+            # extensions=all 时，steps 里可能有 tmcs
+            steps = (paths[0] or {}).get("steps") or []
+            for st in steps:
+                for t in (st or {}).get("tmcs") or []:
+                    status = str((t or {}).get("status") or "").strip()
+                    if not status:
+                        continue
+                    tmcs_status_counts[status] = tmcs_status_counts.get(status, 0) + 1
+
+        # 用 tmcs 估计一个离散“路况等级”
+        if tmcs_status_counts:
+            # 高德常见：畅通/缓行/拥堵/严重拥堵
+            bad = tmcs_status_counts.get("严重拥堵", 0) + tmcs_status_counts.get("拥堵", 0)
+            mid = tmcs_status_counts.get("缓行", 0)
+            good = tmcs_status_counts.get("畅通", 0)
+            if bad > 0:
+                traffic_level = "congested"
+            elif mid > 0:
+                traffic_level = "slow"
+            elif good > 0:
+                traffic_level = "good"
+
+        return {
+            "traffic_level": traffic_level,
+            "duration_sec": duration_sec,
+            "tmcs_status_counts": tmcs_status_counts if tmcs_status_counts else None,
+            "raw": raw,
+        }
 
     def load_backlog(self, backlog: memory.Backlog, target_date: str):
         """加载指定日期的对话记录"""
@@ -343,6 +410,12 @@ class Get_Local_Backlog(BaseModel):
 class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
     adcode: str = Field(..., description="中国城市编码") # <--- 这里写参数的具体含义
+
+class Get_Traffic(BaseModel):
+    """获取两点间驾车路况（粗略估计）"""
+    origin: str = Field(..., description="起点坐标 'lng,lat'")
+    destination: str = Field(..., description="终点坐标 'lng,lat'")
+    strategy: int = Field(0, description="路径策略（0为速度优先）")
 
 class Load_Backlog(BaseModel):
     """加载指定日期的对话记录"""
