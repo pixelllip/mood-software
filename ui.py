@@ -478,12 +478,6 @@ class MyWindow(QWidget):
         if getattr(self, "_calendar_locked", False):
             return
 
-        # 原有逻辑：日期变化交给 slot（可能用于别处逻辑）
-        try:
-            self.event_handler.on_date_changed(date)
-        except Exception:
-            pass
-
         # backlog 页：点击日期刷新记录
         if self.stacked_widget.currentIndex() == 1:
             self.load_backlog_data()
