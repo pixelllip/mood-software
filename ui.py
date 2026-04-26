@@ -189,6 +189,9 @@ class MyWindow(QWidget):
         query_layout.addWidget(self.query_result)
         query_widget.setLayout(query_layout)
         query_btn.clicked.connect(self.on_query_score)
+        # 关联enter发送
+        self.query_sid.installEventFilter(self)
+        self.query_name.installEventFilter(self)
     
         # 以下定义添加界面
         add_widget = QWidget()
@@ -209,6 +212,11 @@ class MyWindow(QWidget):
         add_layout.addWidget(self.add_result)
         add_widget.setLayout(add_layout)
         add_btn.clicked.connect(self.on_add_score_clicked)
+        # 关联enter发送
+        self.add_class.installEventFilter(self)
+        self.add_sid.installEventFilter(self)
+        self.add_name.installEventFilter(self)
+        self.add_scores.installEventFilter(self)
     
         # 以下定义删除界面
         del_widget = QWidget()
@@ -234,6 +242,10 @@ class MyWindow(QWidget):
     
         layout.addWidget(tabs)
         self.score_page.setLayout(layout)
+        # 关联enter发送
+        self.del_class.installEventFilter(self)
+        self.del_sid.installEventFilter(self)
+        self.del_name.installEventFilter(self)
     
     def load_backlog_data(self):
         """从 Agent 的 backlog 文件中加载数据"""
@@ -420,17 +432,43 @@ class MyWindow(QWidget):
         self.move(frame_geometry.topLeft())
 
     def eventFilter(self, obj, event):
-        """捕捉Enter键，触发发送按钮点击"""
-        if obj is self.input and event.type() == event.Type.KeyPress:
+        """捕捉Enter键，支持 Shift+Enter 换行，纯 Enter 触发提交"""
+        if event.type() == event.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                # Shift + Enter: 允许换行（返回 False 让事件继续传递）
-                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                    return False
                 
-                # 纯 Enter: 触发点击并拦截换行
-                self.btn_send.animateClick()
-                return True # 返回 True 表示事件已处理，不再向下传递
+                # 判断是否按下了 Shift 键
+                is_shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
                 
+                # 1. 如果按下了 Shift + Enter
+                if is_shift_pressed:
+                    # 如果是多行文本框 (QTextEdit)，允许换行
+                    if isinstance(obj, QTextEdit):
+                        return False  # 返回 False 让系统处理换行
+                    # 如果是单行文本框 (QLineEdit)，Shift+Enter 通常没意义，直接拦截不响应即可
+                    return True 
+
+                # 2. 如果只按了 Enter (不带 Shift)
+                
+                # 聊天界面
+                if obj is self.input:
+                    self.btn_send.animateClick()
+                    return True 
+                
+                # 查询界面 (QLineEdit)
+                elif obj in (self.query_sid, self.query_name):
+                    self.on_query_score()
+                    return True
+
+                # 添加界面 (包括多行的 self.add_scores)
+                elif obj in (self.add_class, self.add_sid, self.add_name, self.add_scores):
+                    self.on_add_score_clicked()
+                    return True
+
+                # 删除界面
+                elif obj in (self.del_class, self.del_sid, self.del_name):
+                    self.on_delete_score_clicked()
+                    return True
+                    
         return super().eventFilter(obj, event)
 
 if __name__ == "__main__":
