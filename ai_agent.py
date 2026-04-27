@@ -2,7 +2,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from memory import Backlog, Instructions
 from Tools.tools import AgentTools
-from event import MySignal
+from event_handle import MySignal
 from PySide6.QtCore import QThread
 import time
 import sys

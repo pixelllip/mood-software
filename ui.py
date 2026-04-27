@@ -1,18 +1,19 @@
 # ui.py
 from PySide6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QTextEdit, 
-                               QVBoxLayout, QStackedWidget, QHBoxLayout, QListWidget,
-                               QFrame, QCalendarWidget, QMessageBox, QSizePolicy)
-from PySide6.QtCore import Qt, QDate, QTimer, QThread, Signal
+                               QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget,
+                               QFrame, QCalendarWidget, QSizePolicy,QMessageBox,QCheckBox)
+from PySide6.QtCore import Qt, QDate,QThread, Signal, QTimer
 from PySide6.QtGui import QTextCursor, QFont
-from PySide6.QtWidgets import QCheckBox
-from event import MySignal, MySlot
+from event_handle import MySignal, MySlot
 from ai_agent import AI_Agent
-from Task.TaskOrganizer import TaskOrganizer
+from Tools.Task.TaskOrganizer import TaskOrganizer
+from Tools.Score_Management.services import StudentScoreService
 import re
 import os
 import json
 from pathlib import Path
 from datetime import datetime
+from Tools.Score_Management.services import StudentScoreService
 
 class ScheduleGenThread(QThread):
     finished_with_text = Signal(str, str, str)  # plan_text, date_str, picked_note
@@ -65,8 +66,7 @@ class MyWindow(QWidget):
         self.setMinimumSize(880, 620)
 
         # ✅ 1. 创建信号和槽对象
-        self.my_signal_obj = MySignal()
-        self.my_slot_obj = MySlot()
+        self.event_handler = MySlot()
 
         self.stacked_widget = QStackedWidget(self)
 
@@ -104,15 +104,11 @@ class MyWindow(QWidget):
         self.agent = AI_Agent()  # 在窗口中创建 agent 实例，方便管理
         self.task_organizer = TaskOrganizer(self.agent.tool)
         self.signal = MySignal()
-        
-        # 重新设计连接方式：让 slot 知道 agent 是谁
-        self.my_slot_obj.set_agent(self.agent)
-
         # ✅ 关键连接：将 AI 的输出信号直接连接到 UI 更新方法
         # 这样就不需要经过 MySlot 来处理 UI 更新了，解耦更清晰
         self.agent.signal.text_output.connect(self.append_ai_text)
         self.agent.signal.is_finished.connect(self.on_ai_finished)
-        self.agent.signal.error.connect(self.my_slot_obj.error_process)  # 连接错误信号到槽函数
+        self.agent.signal.error.connect(self.event_handler.error_process)  # 连接错误信号到槽函数
         self.agent.check_api_key()
 
         # ✅ 5. 连接按钮点击
@@ -239,8 +235,6 @@ class MyWindow(QWidget):
         # 设置默认选择今天
         self.calendar.setSelectedDate(QDate.currentDate())
         self.selected_date=self.calendar.setSelectedDate
-        # 当日期改变时触发方法
-        self.calendar.clicked.connect(self.my_slot_obj.on_date_changed)
         nav_layout.addWidget(self.calendar)
 
         btn_go_backlog = QPushButton("AI聊天")
@@ -486,7 +480,7 @@ class MyWindow(QWidget):
 
         # 原有逻辑：日期变化交给 slot（可能用于别处逻辑）
         try:
-            self.my_slot_obj.on_date_changed(date)
+            self.event_handler.on_date_changed(date)
         except Exception:
             pass
 
@@ -698,7 +692,7 @@ class MyWindow(QWidget):
             try:
                 os.startfile(str(self._schedule_stable_path(today_str)))  # type: ignore[attr-defined]
             except Exception as e:
-                self.my_slot_obj.error_process(f"打开失败：{e}")
+                self.event_handler.error_process(f"打开失败：{e}")
         elif clicked == btn_view:
             self.switch_page(2)
             self.schedule_display.setText(text)
@@ -736,7 +730,7 @@ class MyWindow(QWidget):
                 self.schedule_display.setText("请先填写学生学号或姓名（用于读取成绩并生成学习日程）。")
                 return
 
-            students = self.my_slot_obj.on_query_score(sid, name)
+            students = self.on_query_score()
             if not students:
                 self.schedule_display.setText("未找到该学生的成绩记录。请先在“成绩管理”里录入/更新成绩。")
                 return
@@ -825,6 +819,7 @@ class MyWindow(QWidget):
         
         tabs = QTabWidget()
 
+        # 以下定义查询菜单
         query_widget = QWidget()
         query_layout = QVBoxLayout()
         form = QFormLayout()
@@ -839,10 +834,12 @@ class MyWindow(QWidget):
         query_layout.addWidget(query_btn)
         query_layout.addWidget(self.query_result)
         query_widget.setLayout(query_layout)
-        
-        # 查询按钮点击事件（放在类的方法中，后面定义）
         query_btn.clicked.connect(self.on_query_score)
+        # 关联enter发送
+        self.query_sid.installEventFilter(self)
+        self.query_name.installEventFilter(self)
     
+        # 以下定义添加界面
         add_widget = QWidget()
         add_layout = QVBoxLayout()
         add_form = QFormLayout()
@@ -860,21 +857,30 @@ class MyWindow(QWidget):
         add_layout.addWidget(add_btn)
         add_layout.addWidget(self.add_result)
         add_widget.setLayout(add_layout)
-        add_btn.clicked.connect(self.on_add_score)
+        add_btn.clicked.connect(self.on_add_score_clicked)
+        # 关联enter发送
+        self.add_class.installEventFilter(self)
+        self.add_sid.installEventFilter(self)
+        self.add_name.installEventFilter(self)
+        self.add_scores.installEventFilter(self)
     
-        # ---- 删除页 ----
+        # 以下定义删除界面
         del_widget = QWidget()
         del_layout = QVBoxLayout()
         del_form = QFormLayout()
+        self.del_class = QLineEdit()
         self.del_sid = QLineEdit()
+        self.del_name = QLineEdit()
+        del_form.addRow("班级ID:", self.del_class)
         del_form.addRow("学号:", self.del_sid)
+        del_form.addRow("姓名:", self.del_name)
         del_btn = QPushButton("删除")
         self.del_result = QLabel2()
         del_layout.addLayout(del_form)
         del_layout.addWidget(del_btn)
         del_layout.addWidget(self.del_result)
         del_widget.setLayout(del_layout)
-        del_btn.clicked.connect(self.on_delete_score)
+        del_btn.clicked.connect(self.on_delete_score_clicked)
         
         tabs.addTab(query_widget, "查询")
         tabs.addTab(add_widget, "添加")
@@ -882,6 +888,10 @@ class MyWindow(QWidget):
     
         layout.addWidget(tabs)
         self.score_page.setLayout(layout)
+        # 关联enter发送
+        self.del_class.installEventFilter(self)
+        self.del_sid.installEventFilter(self)
+        self.del_name.installEventFilter(self)
 
     def init_settings_ui(self):
         """初始化设置界面（不使用弹窗，直接页面内设置）"""
@@ -1050,26 +1060,57 @@ class MyWindow(QWidget):
         """AI回复结束时，告诉用户回复完成"""
         self.label.setText("AI 回复完成")
         self.btn_send.setEnabled(True) # 重新启用按钮
-    
+
     def on_query_score(self):
-        """点击“查询”按钮查询学生成绩，名字可以模糊搜索"""
-        student_id = self.query_sid.text().strip()
-        name = self.query_name.text().strip()
+        """点击“查询”按钮查询学生成绩，名字可以模糊搜索
+        
+        仅当当前显示的是 Schedule 界面时，才读取 schedule_student_id_input 和 schedule_student_name_input 的输入
+        """
+        student_id = ""
+        name = ""
+        
+        # 检查当前是否在 Schedule 界面
+        is_schedule_page = False
+        if hasattr(self, 'stacked_widget'):
+            current_widget = self.stacked_widget.currentWidget()
+            if hasattr(self, 'schedule_page') and current_widget == self.schedule_page:
+                is_schedule_page = True
+        
+        # 如果在 Schedule 界面，优先使用 schedule 界面的输入框
+        if is_schedule_page:
+            if hasattr(self, 'schedule_student_id_input') and self.schedule_student_id_input:
+                student_id = self.schedule_student_id_input.text().strip()
+            
+            if hasattr(self, 'schedule_student_name_input') and self.schedule_student_name_input:
+                name = self.schedule_student_name_input.text().strip()
+        else:
+            # 不在 Schedule 界面，使用成绩查询界面的输入框
+            student_id = self.query_sid.text().strip()
+            name = self.query_name.text().strip()
+        
         if not student_id and not name:
             self.query_result.setText("请填写学号或姓名")
             return   
-        result=self.my_slot_obj.on_query_score(student_id, name)
+        
+        to_search = StudentScoreService()
+        query_result = to_search.get_student_by_id(student_id)
+        if not query_result:
+            query_result = to_search.get_students_by_name(name)
+            if not query_result:
+                query_result = [s for s in to_search.students if name.lower() in s.name.lower()]
         display_text = ""
-        for s in result:
+
+        for s in query_result:
             # 提取各个属性，分类拼接
             info = f"【姓名】: {s.name:<8} 【学号】: {s.student_id}\n"
             score_items = [f"{k:<8}: {v:>6.1f}" for k, v in s.scores.items()]
             scores = "【成绩】:\n\t" + ",\n\t".join(score_items)
             display_text += info + scores + "\n" + "-"*30 + "\n"
-    
-        self.query_result.setText(display_text)
 
-    def on_add_score(self):
+        self.query_result.setText(display_text)
+        return query_result
+
+    def on_add_score_clicked(self):
         """处理成绩管理界面“添加”按钮的点击事件"""
         # 1. 获取前端输入的数据
         class_id_str = self.add_class.text().strip()
@@ -1092,15 +1133,55 @@ class MyWindow(QWidget):
                 course, score = match
             try:
                 new_scores[course.strip()] = float(score.strip())
-                msg+=f"{self.my_slot_obj.on_add_score(int(class_id_str), sid, name, new_scores)}\n"
+                to_add = StudentScoreService()
+                msg+=f"{to_add.add_score(int(class_id_str), sid, name, new_scores)}\n" # 此处开始执行添加信息的方法
             except ValueError:
-                self.add_result.setText("请检查所有选项是否填写恰当！")
-                continue
+                self.add_result.setText("")
+                self.event_handler._show_message("输入非法", "成绩格式必须为 数字 (例如 英语:95.5)", QMessageBox.Icon.Critical)
+                break
         
         self.add_result.setText(msg)
 
-    def on_delete_score(self):
-        pass
+    def on_delete_score_clicked(self):
+        """处理成绩管理界面“删除”按钮的点击事件"""
+        class_id = self.del_class.text().strip()
+        sid = self.del_sid.text().strip()
+        name = self.del_name.text().strip()
+
+        if not sid and not (class_id and name):
+            # 替换用法 1: 警告弹窗
+            self.event_handler._show_message(
+                title="输入错误",
+                text="请提供【学号】或【班级+姓名】以进行删除。",
+                icon=QMessageBox.Icon.Warning
+            )
+            return
+
+        confirm_msg = f"学号为 {sid}" if sid else f"班级为 {class_id} 的 {name}"
+        
+        # 替换用法 2: 询问弹窗
+        reply = self.event_handler._show_message(
+            title="确认删除",
+            text=f"您确定要删除 {confirm_msg} 的学生信息吗？",
+            icon=QMessageBox.Icon.Question,
+            buttons=QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            default_btn=QMessageBox.StandardButton.No
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                service = StudentScoreService() 
+                success = service.delete_student(class_id, sid, name)
+                
+                if success:
+                    # 替换用法 3: 信息提示
+                    self.event_handler._show_message("成功", "学生信息已成功删除。")
+                else:
+                    self.event_handler._show_message("失败", "未找到符合条件的记录。", QMessageBox.Icon.Warning)
+                    
+            except Exception as e:
+                # 替换用法 4: 错误提示
+                self.event_handler._show_message("错误", f"删除过程中发生异常: {str(e)}", QMessageBox.Icon.Critical)
 
     def center(self):
         """将窗口居中显示"""
@@ -1114,7 +1195,7 @@ class MyWindow(QWidget):
         self.move(frame_geometry.topLeft())
 
     def eventFilter(self, obj, event):
-        """捕捉Enter键，触发发送按钮点击"""
+        """捕捉Enter键，支持 Shift+Enter 换行，纯 Enter 触发提交"""
         # 日历：在非“聊天历史记录/日程安排”页面锁定日期切换，但保持外观不变
         if obj is getattr(self, "calendar", None) and getattr(self, "_calendar_locked", False):
             if event.type() in (
@@ -1130,14 +1211,40 @@ class MyWindow(QWidget):
         input_box = getattr(self, "input", None)
         if obj is input_box and event.type() == event.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                # Shift + Enter: 允许换行（返回 False 让事件继续传递）
-                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                    return False
                 
-                # 纯 Enter: 触发点击并拦截换行
-                self.btn_send.animateClick()
-                return True # 返回 True 表示事件已处理，不再向下传递
+                # 判断是否按下了 Shift 键
+                is_shift_pressed = event.modifiers() & Qt.KeyboardModifier.ShiftModifier
                 
+                # 1. 如果按下了 Shift + Enter
+                if is_shift_pressed:
+                    # 如果是多行文本框 (QTextEdit)，允许换行
+                    if isinstance(obj, QTextEdit):
+                        return False  # 返回 False 让系统处理换行
+                    # 如果是单行文本框 (QLineEdit)，Shift+Enter 通常没意义，直接拦截不响应即可
+                    return True 
+
+                # 2. 如果只按了 Enter (不带 Shift)
+                
+                # 聊天界面
+                if obj is self.input:
+                    self.btn_send.animateClick()
+                    return True 
+                
+                # 查询界面 (QLineEdit)
+                elif obj in (self.query_sid, self.query_name):
+                    self.on_query_score()
+                    return True
+
+                # 添加界面 (包括多行的 self.add_scores)
+                elif obj in (self.add_class, self.add_sid, self.add_name, self.add_scores):
+                    self.on_add_score_clicked()
+                    return True
+
+                # 删除界面
+                elif obj in (self.del_class, self.del_sid, self.del_name):
+                    self.on_delete_score_clicked()
+                    return True
+                    
         return super().eventFilter(obj, event)
 
 if __name__ == "__main__":

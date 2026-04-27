@@ -84,6 +84,29 @@ class StudentScoreService:
                 msg = "错误：班级ID必须为数字。"
 
         return msg
+    
+    def delete_student(self, class_id:str, student_id: str, name:str) -> bool:
+        """
+        根据班级/学号/学生姓名删除学生信息
+        Args:
+            student_id: 要删除的学生 ID
+        """
+        result=False
+        # 记录初始长度以便判断是否执行了删除
+        initial_count = len(self.students)
+        
+        # 过滤掉 ID 匹配的学生
+        if not class_id or not name:
+            self.students = [s for s in self.students if s.student_id != student_id]
+        else:
+            # 筛选掉班级和姓名都匹配的学生
+            self.students = [s for s in self.students if s.name != name or s.class_id!=class_id]
+        
+        if len(self.students) < initial_count:
+            self.save_data()  # 立即同步到本地 JSON 文件
+            result=True
+        
+        return result
 
     def get_student_by_id(self, student_id: str) -> List[Student]:
         """根据学号查询学生"""
