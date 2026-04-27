@@ -976,7 +976,7 @@ class MyWindow(QWidget):
         
         # 尝试加载并检查关键变量（假设你需要检查 API_KEY）
         load_dotenv(env_path)
-        api_key = os.getenv("API_KEY") # 请根据你 ai_agent.py 里的实际变量名修改
+        api_key = os.getenv("OPENAI_API_KEY") # 请根据你 ai_agent.py 里的实际变量名修改
         if not api_key or len(api_key) < 5:
             return ".env 已找到，但 API Key 无效", "#ea580c"  # 橙色提示
         
