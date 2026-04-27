@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import subprocess
 import requests
+import sys
 import os
 
 load_dotenv()
@@ -104,12 +105,27 @@ class AgentTools:
         """加载指定日期的对话记录"""
         backlog.load_backlog(target_date)
 
+    def get_resource_path(self,relative_path):
+        """
+        智能获取资源路径
+        relative_path: 传入文件夹名+文件名，例如 "Windows-UZDoom-Nightly/uzdoom.exe"
+        """
+        # 1. 检查是否在打包环境 (_MEIPASS)
+        if hasattr(sys, '_MEIPASS'):
+            base_path = getattr(sys, '_MEIPASS', os.path.abspath("."))
+            return os.path.join(base_path, relative_path)
+        
+        # 2. 如果在开发环境，手动补上 Tools 目录前缀
+        # 假设你的主程序 ui.py 在 Tools 的上一级
+        dev_path = os.path.join(os.path.abspath("."), "Tools", relative_path)
+        return dev_path
+
     def run_script(self, script_path: str, target_path: str = ""):
         """对目标运行指定的脚本文件（支持 Python 和 BAT）"""# --- 新增：彩蛋触发逻辑 ---
         if script_path == "EasterEgg":
-            # 定义 UZDoom 的相对路径（相对于你脚本运行的位置，或使用绝对路径）
-            # 建议使用 os.path.join 保证跨平台兼容性（虽然 exe 是 Windows 专用）
-            doom_path = os.path.abspath(r"Tools\\Windows-UZDoom-Nightly\\uzdoom.exe")
+            # 使用 get_resource_path 自动适配路径
+            # 注意：这里传入打包时设置的相对路径即可，不需要写 r"..." 转义
+            doom_path = self.get_resource_path(os.path.join("Windows-UZDoom-Nightly", "uzdoom.exe"))
             
             if os.path.exists(doom_path):
                 print(f"[BONUS] 激活彩蛋！正在启动: {doom_path}")

@@ -8,6 +8,7 @@ from event_handle import MySignal, MySlot
 from ai_agent import AI_Agent
 from Tools.Task.TaskOrganizer import TaskOrganizer
 from Tools.Score_Management.services import StudentScoreService
+from dotenv import load_dotenv, find_dotenv
 import re
 import os
 import json
@@ -61,7 +62,7 @@ class ScheduleGenThread(QThread):
 class MyWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("学习助手")
+        self.setWindowTitle("星火学伴")
         self.resize(980, 680)
         self.setMinimumSize(880, 620)
 
@@ -126,7 +127,7 @@ class MyWindow(QWidget):
 
     def _apply_styles(self, theme: str = "light"):
         """统一字体（Windows 下观感更稳定）"""
-        self.setFont(QFont("NOTOSANS", 10))
+        self.setFont(QFont("Microsoft YaHei", 10))
         # 设计两套基础样式（light/dark），覆盖常用控件，保持整体风格一致
         self._qss_light = """
         QWidget { background: #e3e7ee; color: #0f172a; }
@@ -941,9 +942,51 @@ class MyWindow(QWidget):
         hint.setWordWrap(True)
         content.addWidget(hint)
 
+        # --- 新增：.env 状态检测区域 ---
+        status_group = QFrame()
+        status_group.setObjectName("NavPanel") # 复用你已有的 QSS 样式
+        status_layout = QHBoxLayout(status_group)
+        
+        self.env_status_label = QLabel("正在检测环境配置...")
+        status_text, status_color = self._check_env_status()
+        self.env_status_label.setText(status_text)
+        self.env_status_label.setStyleSheet(f"color: {status_color}; font-weight: bold;")
+        
+        btn_refresh_env = QPushButton("重新检测")
+        btn_refresh_env.setFixedWidth(100)
+        btn_refresh_env.clicked.connect(self.refresh_env_ui) # 点击手动刷新
+        
+        status_layout.addWidget(QLabel("环境状态:"))
+        status_layout.addWidget(self.env_status_label)
+        status_layout.addStretch()
+        status_layout.addWidget(btn_refresh_env)
+        
+        layout.addWidget(status_group)
+
         content.addStretch()
         layout.addLayout(content, 1)
         self.settings_page.setLayout(layout)
+
+    def _check_env_status(self):
+        """检测 .env 文件状态"""
+        env_path = find_dotenv()
+        if not env_path:
+            return """未检测到 .env 文件，请在程序同目录下新建一个.env文件，
+            并填入：API密钥(OPENAI_API_KEY)，以及您希望将生成的数据存储的位置(BASE_PATH)""", "#b91c1c"  # 红色提示
+        
+        # 尝试加载并检查关键变量（假设你需要检查 API_KEY）
+        load_dotenv(env_path)
+        api_key = os.getenv("API_KEY") # 请根据你 ai_agent.py 里的实际变量名修改
+        if not api_key or len(api_key) < 5:
+            return ".env 已找到，但 API Key 无效", "#ea580c"  # 橙色提示
+        
+        return f".env 检测正常 (路径: {os.path.basename(env_path)})", "#16a34a"  # 绿色提示
+    
+    def refresh_env_ui(self):
+        """刷新 UI 上的环境状态"""
+        status_text, status_color = self._check_env_status()
+        self.env_status_label.setText(status_text)
+        self.env_status_label.setStyleSheet(f"color: {status_color}; font-weight: bold;")
 
     def _on_theme_clicked(self, checked: bool):
         """主题选择的强约束逻辑：不允许两者都不选，必须始终保持至少一个主题被选中。"""
