@@ -3,7 +3,7 @@ from PySide6.QtWidgets import (QApplication, QWidget, QPushButton, QLabel, QText
                                QVBoxLayout,QStackedWidget, QHBoxLayout, QListWidget,
                                QFrame, QCalendarWidget, QSizePolicy,QMessageBox,QCheckBox)
 from PySide6.QtCore import Qt, QDate,QThread, Signal, QTimer
-from PySide6.QtGui import QTextCursor, QFont
+from PySide6.QtGui import QTextCursor, QFont,QIcon
 from event_handle import MySignal, MySlot
 from ai_agent import AI_Agent
 from Tools.Task.TaskOrganizer import TaskOrganizer
@@ -64,6 +64,9 @@ class MyWindow(QWidget):
         self.setWindowTitle("学习助手")
         self.resize(980, 680)
         self.setMinimumSize(880, 620)
+
+        # ✅ 设置窗口图标
+        self.setWindowIcon(QIcon("bg.ico"))
 
         # ✅ 1. 创建信号和槽对象
         self.event_handler = MySlot()
