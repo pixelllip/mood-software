@@ -61,7 +61,7 @@ class Backlog:
         # 遍历 Backlog 目录下所有的日期文件夹
         backlog_path = Path(self.base_path).joinpath("Backlog", target_date)
         if not backlog_path.exists():
-            return "Backlog 不存在"
+            return {}
 
         print(f"\n[读取 {target_date} 的对话记录]:")
         

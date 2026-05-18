@@ -1,7 +1,10 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/score_result_page.dart';
 import 'package:ai_agent/settings_page.dart';
+import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
 
 class MyHomePage extends StatefulWidget {
@@ -22,6 +25,7 @@ class _MyHomePageState extends State<MyHomePage> {
     "AI聊天",
     "我的成绩",
     "日程安排",
+    "历史记录",
   ];
 
   late List<Widget> pages;
@@ -33,6 +37,7 @@ class _MyHomePageState extends State<MyHomePage> {
       HomeContent(dio: widget.dio),
       ScorePage(dio: widget.dio),
       const SchedulePage(),
+      HistoryPage(dio: widget.dio),
     ];
   }
 
@@ -88,6 +93,15 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.pop(context);
               },
             ),
+            ListTile(
+              leading: Icon(selectedIndex == 3 ? Icons.history : Icons.history_outlined),
+              title: const Text("历史记录"),
+              selected: selectedIndex == 3,
+              onTap: () {
+                onItemTapped(3);
+                Navigator.pop(context);
+              },
+            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),
@@ -96,7 +110,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.pop(context); // Close drawer
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => const SettingsPage()),
+                  MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio)),
                 );
               },
             ),
@@ -124,6 +138,10 @@ class _MyHomePageState extends State<MyHomePage> {
           icon: Icon(selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined),
           label: const Text("日程安排"),
         ),
+        NavigationRailDestination(
+          icon: Icon(selectedIndex == 3 ? Icons.history : Icons.history_outlined),
+          label: const Text("历史记录"),
+        ),
       ],
     );
   }
@@ -142,7 +160,7 @@ class _MyHomePageState extends State<MyHomePage> {
             onPressed: () {
               Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => const SettingsPage()),
+                MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio)),
               );
             },
           ),
@@ -202,17 +220,31 @@ class _HomeContentState extends State<HomeContent> {
     _controller.clear();
     _scrollToBottom();
 
-    try {
-      final res = await widget.dio.post("/chat", data: {"prompt": text});
-      final reply = res.data["reply"] ?? res.data.toString();
+    // 添加一个空的 AI 回复占位
+    setState(() {
+      _messages.add({"text": "", "isUser": false});
+    });
+    int aiMsgIndex = _messages.length - 1;
 
-      setState(() {
-        _messages.add({"text": reply, "isUser": false});
-      });
-      _scrollToBottom();
+    try {
+      debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
+      final response = await widget.dio.post(
+        "/chat",
+        data: {"prompt": text},
+        options: Options(responseType: ResponseType.stream),
+      );
+
+      final stream = response.data.stream as Stream<Uint8List>;
+      
+      await for (final chunk in stream.cast<List<int>>().transform(utf8.decoder)) {
+        setState(() {
+          _messages[aiMsgIndex]["text"] = (_messages[aiMsgIndex]["text"] as String) + chunk;
+        });
+        _scrollToBottom();
+      }
     } catch (e) {
       setState(() {
-        _messages.add({"text": "AI响应失败，请稍后重试。($e)", "isUser": false});
+        _messages[aiMsgIndex]["text"] = "AI响应失败，请稍后重试。($e)";
       });
       _scrollToBottom();
     }
@@ -247,7 +279,7 @@ class _HomeContentState extends State<HomeContent> {
                       bottomRight: Radius.circular(isUser ? 0 : 16),
                     ),
                   ),
-                  child: Text(
+                  child: SelectableText(
                     msg["text"],
                     style: TextStyle(
                       color: isUser ? Colors.white : Colors.black87,

@@ -1,4 +1,4 @@
-from typing import Type, List, TypedDict, Dict, Any
+from typing import Type, List, TypedDict, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 import subprocess
@@ -7,8 +7,13 @@ import sys
 import os
 
 # 导入 Backlog 类型用于注解
-# 注意：为了避免循环引用，如果是从 core.memory 导入，请确保 core.memory 不反向导入 tools
-from core.memory import Backlog
+try:
+    from core.memory import Backlog
+except ImportError:
+    try:
+        from ..core.memory import Backlog
+    except ImportError:
+        Backlog = Any
 
 load_dotenv()
 
@@ -23,11 +28,14 @@ class CustomToolDict(TypedDict):
 
 class Get_Local_Backlog(BaseModel):
     """获取当前的历史对话记录"""
-    backlog: str = Field(..., description="需要查询的 Backlog 对象")
+    pass
 
 class Get_Weather(BaseModel):
     """获取指定地区的实时天气信息"""
-    adcode: str = Field(..., description="中国城市编码")
+    adcode: str = Field(..., description="城市名称或中国城市编码（如 '广州' 或 '440100'）", alias="city")
+
+    class Config:
+        populate_by_name = True
 
 class Get_Traffic(BaseModel):
     """获取两点间驾车路况（粗略估计）"""
@@ -67,15 +75,23 @@ class Qwen_WebSearch(BaseModel):
     """通义千问联网搜索问答"""
     query: str = Field(..., description="用户要搜索或提问的问题")
 
+import re
+
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
     tool_list: List[CustomToolDict] = []
     for model in models:
         schema = model.model_json_schema()
         tool_description = schema.pop("description", None) or model.__doc__ or ""
         schema.pop("title", None)
+        
+        # 将类名转换为下划线命名法 (Snake Case)
+        # 如 TaskOrganizerTool -> task_organizer_tool
+        name = model.__name__
+        name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
+        
         tool_list.append({
             "type": "function",
-            "name": model.__name__.lower(),
+            "name": name,
             "description": tool_description,
             "parameters": schema
         })
@@ -94,13 +110,14 @@ class AgentTools:
         """获取对话记录"""
         print(backlog.get_text())
 
-    def get_weather(self, adcode: str):
+    def get_weather(self, adcode: str = "", **kwargs):
         """获取天气信息"""
         gaode_api_key = os.getenv("Gaode_API_Key")
-        if not adcode:
-            print("没有提供城市编码，无法获取天气信息。")
+        target_city = adcode or kwargs.get("city") or kwargs.get("adcode")
+        if not target_city:
+            print("没有提供城市信息，无法获取天气。")
             return None
-        url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={adcode}&key={gaode_api_key}"
+        url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={target_city}&key={gaode_api_key}"
         result = requests.get(url, timeout=10).json()
         return result
 

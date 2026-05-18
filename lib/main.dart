@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // 💡 新增：用于读取资源文件
 import 'package:flutter/widget_previews.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart'; // 💡 新增：用于配置底层 HttpClient
 import 'package:path_provider/path_provider.dart';
 
 void main() async {
@@ -53,16 +54,27 @@ void main() async {
       
       // 核心校验
       final openaiKey = config['OPENAI_API_KEY'];
-      final baseUrl = config['BASE_URL'] ?? "http://192.168.1.5:8080";
+      
+      // 智能默认地址逻辑
+      String defaultUrl = Platform.isWindows ? "http://127.0.0.1:8080" : "http://10.44.159.179:8080";
+      final baseUrl = config['BASE_URL'] ?? defaultUrl;
       
       if (openaiKey != null && openaiKey.isNotEmpty) {
         dio = Dio(BaseOptions(
           baseUrl: baseUrl,
           headers: {"Authorization": "Bearer $openaiKey"},
-          connectTimeout: const Duration(seconds: 10),
-          receiveTimeout: const Duration(seconds: 10),
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 15),
         ));
-        debugPrint("自动配置成功: $baseUrl, 读取路径: ${file.path}");
+
+        // 💡 强制禁用代理，直接连接后端
+        (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+          final client = HttpClient();
+          client.findProxy = (uri) => "DIRECT"; // 关键：强制直连
+          return client;
+        };
+        
+        debugPrint("Dio 初始化成功并禁用代理: $baseUrl");
       }
     }
   } catch (e) {

@@ -26,18 +26,20 @@ class AgentTools:
         """获取对话记录"""
         print(backlog.get_text())
 
-    def get_weather(self, adcode: str) -> Optional[Dict[str, Any]]:
+    def get_weather(self, adcode: str = "", **kwargs) -> Optional[Dict[str, Any]]:
         """获取天气信息"""
+        # 兼容处理：如果 AI 传了 city 而不是 adcode
+        target_city = adcode or kwargs.get("city") or kwargs.get("adcode")
+        
         # ⚠️ 【需要 API KEY】高德地图 API
-        # 在 .env 文件中配置：Gaode_API_Key=your_gaode_api_key
-        # 申请地址：https://lbs.amap.com/
         Gaode_API_Key = os.getenv("Gaode_API_Key")
-        if not adcode:
-            print(f"没有提供城市编码，无法获取天气信息。")
-        else:
-            url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={adcode}&key={Gaode_API_Key}"
-            result = requests.get(url, timeout=10).json()
-            return result
+        if not target_city:
+            print(f"没有提供城市信息，无法获取天气。")
+            return None
+            
+        url = f"https://restapi.amap.com/v3/weather/weatherInfo?city={target_city}&key={Gaode_API_Key}"
+        result = requests.get(url, timeout=10).json()
+        return result
 
     def get_traffic(self, origin: str, destination: str, strategy: int = 0) -> Dict[str, Any]:
         """
@@ -437,8 +439,11 @@ class Get_Local_Backlog(BaseModel):
     backlog: str = Field(..., description="需要查询的 Backlog 对象") # <--- 这里写参数的具体含义
 
 class Get_Weather(BaseModel):
-    """获取指定地区的实时天气信息""" # <--- 这里写工具的功能描述
-    adcode: str = Field(..., description="中国城市编码") # <--- 这里写参数的具体含义
+    """获取指定地区的实时天气信息"""
+    adcode: str = Field(..., description="城市名称或中国城市编码（如 '广州' 或 '440100'）", alias="city")
+
+    class Config:
+        populate_by_name = True
 
 class Get_Traffic(BaseModel):
     """获取两点间驾车路况（粗略估计）"""

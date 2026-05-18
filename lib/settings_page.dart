@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 
 class SettingsPage extends StatefulWidget {
-  const SettingsPage({super.key});
+  final Dio dio;
+  const SettingsPage({super.key, required this.dio});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -109,8 +111,19 @@ BASE_URL=${_baseUrlController.text.trim()}
 ''';
 
       await file.writeAsString(content);
+      
+      // 同步更新当前运行中的 Dio 实例
+      final newBaseUrl = _baseUrlController.text.trim();
+      final newKey = _openaiKeyController.text.trim();
+      if (newBaseUrl.isNotEmpty) {
+        widget.dio.options.baseUrl = newBaseUrl;
+      }
+      if (newKey.isNotEmpty) {
+        widget.dio.options.headers["Authorization"] = "Bearer $newKey";
+      }
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("设置已保存")));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("设置已保存并应用")));
       _loadSettings(); // 重新加载以刷新 UI
     } catch (e) {
       if (!mounted) return;
@@ -132,7 +145,8 @@ BASE_URL=${_baseUrlController.text.trim()}
             _buildSectionTitle("API 核心配置"),
             _buildTextField(_openaiKeyController, "OPENAI_API_KEY (千问/OpenAI)", obscure: true),
             const SizedBox(height: 12),
-            _buildTextField(_baseUrlController, "BASE_URL (服务器地址)", hint: "http://192.168.1.5:8080"),
+            _buildTextField(_baseUrlController, "BASE_URL (服务器地址)", 
+              hint: Platform.isWindows ? "本机调试用 http://127.0.0.1:8080" : "手机调试用 http://电脑IP:8080"),
             
             const SizedBox(height: 24),
             _buildSectionTitle("文件与输出"),
