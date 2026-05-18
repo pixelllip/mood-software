@@ -4,8 +4,7 @@ import os
 from pathlib import Path
 
 class Student:
-    def __init__(self, class_id: int, student_id: str, name: str, scores: Dict[str, float]):
-        self.class_id = class_id
+    def __init__(self, student_id: str, name: str, scores: Dict[str, float]):
         self.student_id = student_id
         self.name = name
         self.scores = scores
@@ -16,7 +15,6 @@ class Student:
     def to_dict(self):
         # 普通类直接返回字典
         return {
-            "class_id": self.class_id,
             "student_id": self.student_id,
             "name": self.name,
             "scores": self.scores
@@ -25,7 +23,6 @@ class Student:
     @classmethod
     def from_dict(cls, data: dict):
         return cls(
-            class_id=data["class_id"],
             student_id=data["student_id"],
             name=data["name"],
             scores=data["scores"]
@@ -61,10 +58,8 @@ class StudentScoreService:
         if existing_student:
             # 情况 A: 学生已存在，合并成绩 (使用 update 确保不限制科目)
             existing_student.scores.update(scores)
-            # 可选：如果姓名或班级有变动也可以更新
+            # 可选：如果姓名有变动也可以更新
             existing_student.name = name
-            if class_id:
-                existing_student.class_id = int(class_id)
             
             self.save_data()
             msg = f"已为学生 [{name}] 更新/合并成绩。"
@@ -72,11 +67,11 @@ class StudentScoreService:
             # 情况 B: 新学生，检查班级人数限制（你之前逻辑中有提到 50 人限制）
             try:
                 cid = int(class_id) if class_id else 0
-                class_stu_count = sum(1 for s in self.students if s.class_id == cid)
+                class_stu_count = sum(1 for s in self.students)
                 if class_stu_count >= 50:
                     msg = "错误：该班级人数已达上限（50人）。"
 
-                new_student = Student(cid, student_id, name, scores)
+                new_student = Student(student_id, name, scores)
                 self.students.append(new_student)
                 self.save_data()
                 msg = f"成功录入新学生：{name}"
@@ -100,7 +95,7 @@ class StudentScoreService:
             self.students = [s for s in self.students if s.student_id != student_id]
         else:
             # 筛选掉班级和姓名都匹配的学生
-            self.students = [s for s in self.students if s.name != name or s.class_id!=class_id]
+            self.students = [s for s in self.students if s.name != name]
         
         if len(self.students) < initial_count:
             self.save_data()  # 立即同步到本地 JSON 文件
