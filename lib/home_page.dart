@@ -18,28 +18,14 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int selectedIndex = 0;
 
-  final String userID = "3124004360";
-  final String userName = "Ri Freez";
+  final String userID = "未知学号";
+  final String userName = "未知用户";
 
   final List<String> pageTitles = [
     "AI聊天",
     "我的成绩",
     "日程安排",
-    "历史记录",
   ];
-
-  late List<Widget> pages;
-
-  @override
-  void initState() {
-    super.initState();
-    pages = [
-      HomeContent(dio: widget.dio),
-      ScorePage(dio: widget.dio),
-      const SchedulePage(),
-      HistoryPage(dio: widget.dio),
-    ];
-  }
 
   void onItemTapped(int index) {
     setState(() {
@@ -93,15 +79,6 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.pop(context);
               },
             ),
-            ListTile(
-              leading: Icon(selectedIndex == 3 ? Icons.history : Icons.history_outlined),
-              title: const Text("历史记录"),
-              selected: selectedIndex == 3,
-              onTap: () {
-                onItemTapped(3);
-                Navigator.pop(context);
-              },
-            ),
             const Divider(),
             ListTile(
               leading: const Icon(Icons.settings),
@@ -138,10 +115,6 @@ class _MyHomePageState extends State<MyHomePage> {
           icon: Icon(selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined),
           label: const Text("日程安排"),
         ),
-        NavigationRailDestination(
-          icon: Icon(selectedIndex == 3 ? Icons.history : Icons.history_outlined),
-          label: const Text("历史记录"),
-        ),
       ],
     );
   }
@@ -155,6 +128,17 @@ class _MyHomePageState extends State<MyHomePage> {
         title: Text(pageTitles[selectedIndex]),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
+          if (selectedIndex == 0) // 仅在 AI 聊天页面显示历史记录入口
+            IconButton(
+              icon: const Icon(Icons.history),
+              tooltip: "查看聊天历史",
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => HistoryPage(dio: widget.dio)),
+                );
+              },
+            ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () {
@@ -171,7 +155,11 @@ class _MyHomePageState extends State<MyHomePage> {
       body: isMobile
           ? IndexedStack(
               index: selectedIndex,
-              children: pages,
+              children: [
+                HomeContent(dio: widget.dio),
+                ScorePage(dio: widget.dio),
+                SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
+              ],
             )
           : Row(
               children: [
@@ -180,7 +168,11 @@ class _MyHomePageState extends State<MyHomePage> {
                 Expanded(
                   child: IndexedStack(
                     index: selectedIndex,
-                    children: pages,
+                    children: [
+                      HomeContent(dio: widget.dio),
+                      ScorePage(dio: widget.dio),
+                      SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
+                    ],
                   ),
                 ),
               ],
@@ -374,7 +366,12 @@ class _ScorePageState extends State<ScorePage> {
 
   Future<void> queryData() async {
     try {
-      Response res = await widget.dio.get(
+      if (idController.text.isEmpty && nameController.text.isEmpty) {
+        throw "请输入学生ID或姓名进行查询";
+      }
+
+      final dioInstance = widget.dio;
+      Response res = await dioInstance.get(
         "/query",
         queryParameters: {
           "id": idController.text,
@@ -384,18 +381,33 @@ class _ScorePageState extends State<ScorePage> {
 
       if (!mounted) return;
 
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ScoreResultPage(
-            userName: res.data["name"],
-            scores: res.data["scores"],
+      if (res.data != null && res.data is Map) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ScoreResultPage(
+              userName: res.data["name"]?.toString() ?? "未知",
+              scores: Map<String, dynamic>.from(res.data["scores"] ?? {}),
+            ),
           ),
-        ),
-      );
+        );
+      } else {
+        throw "服务器返回数据格式不正确";
+      }
     } catch (e) {
+      String errorMsg = "查询失败";
+      if (e is DioException) {
+        if (e.response?.statusCode == 404) {
+          errorMsg = "未找到该学生的信息";
+        } else {
+          errorMsg = "服务器错误: ${e.response?.statusCode ?? e.message}";
+        }
+      } else {
+        errorMsg = e.toString();
+      }
+      
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("查询失败: $e")),
+        SnackBar(content: Text(errorMsg)),
       );
     }
   }
@@ -508,25 +520,10 @@ class _ScorePageState extends State<ScorePage> {
     super.dispose();
   }
 
-  List<NavigationRailDestination> funcDestinations() {
-    return const [
-      NavigationRailDestination(
-          icon: Icon(Icons.search_outlined),
-          selectedIcon: Icon(Icons.search),
-          label: Text('查询成绩')),
-      NavigationRailDestination(
-          icon: Icon(Icons.add_outlined),
-          selectedIcon: Icon(Icons.add),
-          label: Text('添加信息')),
-      NavigationRailDestination(
-          icon: Icon(Icons.delete_outlined),
-          selectedIcon: Icon(Icons.delete),
-          label: Text('删除信息')),
-    ];
-  }
+
 
   Widget _buildSearchUI() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -667,7 +664,7 @@ class _ScorePageState extends State<ScorePage> {
   }
 
   Widget _buildDeleteUI() {
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -713,48 +710,291 @@ class _ScorePageState extends State<ScorePage> {
 
   @override
   Widget build(BuildContext context) {
-    Widget content;
-    switch (_selectedFuncIndex) {
-      case 0:
-        content = _buildSearchUI();
-        break;
-      case 1:
-        content = _buildAddUI();
-        break;
-      case 2:
-        content = _buildDeleteUI();
-        break;
-      default:
-        content = _buildSearchUI();
-    }
-
-    return Row(
-      children: [
-        NavigationRail(
-          destinations: funcDestinations(),
-          selectedIndex: _selectedFuncIndex,
-          onDestinationSelected: (index) {
-            setState(() {
-              _selectedFuncIndex = index;
-            });
-          },
-          labelType: NavigationRailLabelType.all,
-        ),
-        const VerticalDivider(width: 1),
-        Expanded(child: content),
-      ],
+    return DefaultTabController(
+      length: 3,
+      initialIndex: _selectedFuncIndex,
+      child: Column(
+        children: [
+          Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: TabBar(
+              onTap: (index) {
+                setState(() {
+                  _selectedFuncIndex = index;
+                });
+              },
+              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: Theme.of(context).primaryColor,
+              unselectedLabelColor: Colors.grey,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(
+                  icon: Icon(Icons.search),
+                  text: "查询",
+                ),
+                Tab(
+                  icon: Icon(Icons.add_circle_outline),
+                  text: "录入",
+                ),
+                Tab(
+                  icon: Icon(Icons.delete_outline),
+                  text: "删除",
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedFuncIndex,
+              children: [
+                _buildSearchUI(),
+                _buildAddUI(),
+                _buildDeleteUI(),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
-class SchedulePage extends StatelessWidget {
-  const SchedulePage({super.key});
+class SchedulePage extends StatefulWidget {
+  final Dio dio;
+  final bool isActive;
+  const SchedulePage({super.key, required this.dio, this.isActive = false});
+
+  @override
+  State<SchedulePage> createState() => _SchedulePageState();
+}
+
+class _SchedulePageState extends State<SchedulePage> {
+  final TextEditingController _taskController = TextEditingController();
+  DateTime _selectedDate = DateTime.now();
+  String _itinerary = "";
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.isActive) {
+      _autoLoad();
+    }
+  }
+
+  @override
+  void didUpdateWidget(SchedulePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 关键：当 isActive 从 false 变为 true 时，说明用户切换到了本页
+    if (widget.isActive && !oldWidget.isActive) {
+      _autoLoad();
+    }
+  }
+
+  void _autoLoad() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchSavedSchedule();
+    });
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+      // 选好日期后自动尝试加载存档
+      _fetchSavedSchedule();
+    }
+  }
+
+  Future<void> _fetchSavedSchedule() async {
+    setState(() {
+      _isLoading = true;
+      _itinerary = "";
+    });
+
+    try {
+      final dioInstance = widget.dio;
+      final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+      final response = await dioInstance.post(
+        "/schedule",
+        data: {
+          "tasks": "", // 传空任务表示仅尝试读取存档
+          "date": dateStr,
+        },
+      );
+      
+      setState(() {
+        _itinerary = response.data["itinerary"]?.toString() ?? "无内容";
+      });
+      
+      if (response.data["from_cache"] != true && _itinerary.contains("暂无存档")) {
+         // 说明没找到，提示用户
+      } else if (response.data["from_cache"] == true) {
+         ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(content: Text("成功加载 $dateStr 的本地存档")),
+         );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("读取存档失败: $e")),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
+
+  Future<void> _generateSchedule() async {
+    if (_taskController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("请输入任务内容")),
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _itinerary = "";
+    });
+
+    try {
+      final dioInstance = widget.dio;
+      final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+      final response = await dioInstance.post(
+        "/schedule",
+        data: {
+          "tasks": _taskController.text,
+          "city": "440100",
+          "date": dateStr,
+        },
+      );
+      
+      if (response.data != null && response.data is Map) {
+        setState(() {
+          _itinerary = response.data["itinerary"]?.toString() ?? "服务器返回内容为空";
+        });
+      } else {
+        setState(() {
+          _itinerary = "服务器返回数据格式错误";
+        });
+      }
+    } catch (e) {
+      debugPrint("生成日程出错: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("生成失败: $e")),
+      );
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Text("日程安排页面", style: TextStyle(fontSize: 24)),
+    final dateDisplay = "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
+
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "输入任务内容",
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              TextButton.icon(
+                onPressed: () => _selectDate(context),
+                icon: const Icon(Icons.calendar_today),
+                label: Text(dateDisplay),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "格式提示：每行一个任务，可带时间关键词（早上/中午/晚上）和位置标签（@outdoor/@indoor）",
+            style: TextStyle(fontSize: 12, color: Colors.grey),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _taskController,
+            maxLines: 5,
+            decoration: const InputDecoration(
+              hintText: "例如：\n早上 晨跑 @outdoor\n中午 整理文档 @indoor\n晚上 健身房",
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _isLoading ? null : _generateSchedule,
+            icon: _isLoading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.auto_awesome),
+            label: const Text("生成智能日程规划"),
+            style: ElevatedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+          ),
+          const SizedBox(height: 24),
+          if (_itinerary.isNotEmpty) ...[
+            const Divider(),
+            const SizedBox(height: 12),
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: Colors.blueGrey.withOpacity(0.1)),
+                ),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // 这里使用 Markdown 解析器会更好，如果没有引入，先用 SelectableText 处理简单的换行
+                      SelectableText(
+                        _itinerary,
+                        style: const TextStyle(fontSize: 16, height: 1.6, color: Colors.black87),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
+  }
+
+  @override
+  void dispose() {
+    _taskController.dispose();
+    super.dispose();
   }
 }
 

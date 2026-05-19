@@ -195,4 +195,10 @@ class AiAgent:
             return self.tool.image_recognition(**arguments)
         elif tool_name == "qwen_websearch":
             return self.tool.qwen_websearch(**arguments)
+        elif tool_name == "query_score":
+            return self.tool.query_score(**arguments)
+        elif tool_name == "add_score":
+            return self.tool.add_score(**arguments)
+        elif tool_name == "delete_score":
+            return self.tool.delete_score(**arguments)
         return "未知工具"

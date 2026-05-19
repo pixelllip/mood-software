@@ -1,6 +1,5 @@
 [
   {
-    "class_id": 1,
     "student_id": "3221",
     "name": "信息",
     "scores": {
@@ -13,11 +12,18 @@
     }
   },
   {
-    "class_id": 6,
     "student_id": "65535",
     "name": "孙笑川",
     "scores": {
       "语文": 0.0
+    }
+  },
+  {
+    "student_id": "1244",
+    "name": "张三",
+    "scores": {
+      "计科": "88",
+      "软工": "87"
     }
   }
 ]

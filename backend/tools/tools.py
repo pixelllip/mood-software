@@ -9,11 +9,17 @@ import os
 # 导入 Backlog 类型用于注解
 try:
     from core.memory import Backlog
+    from tools.score_management.services import StudentScoreService
+    from tools.task.task_organizer import TaskOrganizer
 except ImportError:
     try:
         from ..core.memory import Backlog
+        from .score_management.services import StudentScoreService
+        from .task.task_organizer import TaskOrganizer
     except ImportError:
         Backlog = Any
+        StudentScoreService = Any
+        TaskOrganizer = Any
 
 load_dotenv()
 
@@ -75,6 +81,22 @@ class Qwen_WebSearch(BaseModel):
     """通义千问联网搜索问答"""
     query: str = Field(..., description="用户要搜索或提问的问题")
 
+class Query_Score(BaseModel):
+    """查询学生成绩"""
+    student_id: Optional[str] = Field(None, description="学生ID")
+    name: Optional[str] = Field(None, description="学生姓名，支持模糊搜索")
+
+class Add_Score(BaseModel):
+    """录入或更新学生成绩"""
+    student_id: str = Field(..., description="学生ID")
+    name: str = Field(..., description="学生姓名")
+    scores: Dict[str, float] = Field(..., description="成绩字典，例如 {'数学': 95, '英语': 88}")
+
+class Delete_Score(BaseModel):
+    """删除学生信息"""
+    student_id: Optional[str] = Field(None, description="学生ID")
+    name: Optional[str] = Field(None, description="学生姓名")
+
 import re
 
 def build_tools_list(models: List[Type[BaseModel]]) -> List[CustomToolDict]:
@@ -103,8 +125,11 @@ class AgentTools:
         self.tool_list = build_tools_list([
             Get_Local_Backlog, Get_Weather, Get_Traffic, Load_Backlog, 
             Run_Script, Text_to_Image, Image_Recognition,
-            TaskOrganizerTool, Qwen_WebSearch
+            TaskOrganizerTool, Qwen_WebSearch,
+            Query_Score, Add_Score, Delete_Score
         ])
+        self.score_service = StudentScoreService()
+        self.task_organizer_service = TaskOrganizer(self)
     
     def get_local_backlog(self, backlog: Backlog):
         """获取对话记录"""
@@ -362,24 +387,20 @@ class AgentTools:
 
     def task_organizer(self, tasks: List[str]):
         """生成格式化的待办清单"""
-        morning_tasks = [task.replace('早上', '').strip() for task in tasks if '早上' in task]
-        noon_tasks = [task.replace('中午', '').strip() for task in tasks if '中午' in task]
-        evening_tasks = [task.replace('晚上', '').strip() for task in tasks if '晚上' in task]
-        free_tasks = [task for task in tasks if '早上' not in task and '中午' not in task and '晚上' not in task]
-
-        todo_list = ""
-        if morning_tasks:
-            todo_list += "早上做什么：\n" + "\n".join([f"- {task}" for task in morning_tasks]) + "\n"
-        if noon_tasks:
-            todo_list += "中午做什么：\n" + "\n".join([f"- {task}" for task in noon_tasks]) + "\n"
-        if evening_tasks:
-            todo_list += "晚上做什么：\n" + "\n".join([f"- {task}" for task in evening_tasks]) + "\n"
-        if free_tasks:
-            todo_list += "自由安排的事项：\n" + "\n".join([f"- {task}" for task in free_tasks])
-        return todo_list
+        tasks_text = "\n".join(tasks)
+        # 默认使用广州的 adcode 进行天气查询，实际应用中可动态获取
+        return self.task_organizer_service.generate_today_itinerary(tasks_text, city_adcode="440100")
     
 
-    def query_score(self, student_file, name):
-        """查询学生成绩，名字支持模糊搜索"""
-        results = [s for s in student_file if name.lower() in s['name'].lower()]
-        return results
+    def query_score(self, student_id: str = None, name: str = None):
+        """查询学生成绩"""
+        return self.score_service.query_students(student_id=student_id, name=name)
+
+    def add_score(self, student_id: str, name: str, scores: Dict[str, float]):
+        """录入或更新成绩"""
+        return self.score_service.add_score(student_id, name, scores)
+
+    def delete_score(self, student_id: str = None, name: str = None):
+        """删除学生信息"""
+        success = self.score_service.delete_student(student_id=student_id, name=name)
+        return "删除成功" if success else "未找到对应学生或删除失败"

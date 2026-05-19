@@ -28,7 +28,7 @@ class StudentScoreService:
     def __init__(self, data_file: str = "students.json"):
         env_path = os.getenv("BASE_PATH", ".")
         base_path = Path(env_path)
-        self.data_file = base_path / "data" / data_file
+        self.data_file = base_path / "Score_info" / data_file
         self.students: List[Student] = []
         self.load_data()
 

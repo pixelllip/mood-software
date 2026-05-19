@@ -7,6 +7,7 @@ import 'package:flutter/widget_previews.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart'; // 💡 新增：用于配置底层 HttpClient
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +100,16 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('zh', 'CN'),
+        Locale('en', 'US'),
+      ],
+      locale: const Locale('zh', 'CN'),
       // 只有在 initialDio 不为空时才进入主页，否则进入欢迎页
       home: initialDio != null ? MyHomePage(dio: initialDio!) : const WelcomePage(),
     );
