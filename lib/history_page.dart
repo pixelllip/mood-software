@@ -95,6 +95,7 @@ class _HistoryPageState extends State<HistoryPage> {
                       padding: const EdgeInsets.all(16),
                       itemCount: _historyList.length,
                       itemBuilder: (context, index) {
+                        String fileKey = _historyList.keys.elementAt(index);
                         dynamic messagesRaw = _historyList[fileKey];
                         if (messagesRaw is! List) {
                           return const SizedBox.shrink();

@@ -169,13 +169,19 @@ class _MyHomePageState extends State<MyHomePage> {
       drawer: isMobile ? buildDrawer() : null,
       drawerEdgeDragWidth: isMobile ? MediaQuery.of(context).size.width * 0.15 : null,
       body: isMobile
-          ? pages[selectedIndex]
+          ? IndexedStack(
+              index: selectedIndex,
+              children: pages,
+            )
           : Row(
               children: [
                 buildRail(),
                 const VerticalDivider(width: 1),
                 Expanded(
-                  child: pages[selectedIndex],
+                  child: IndexedStack(
+                    index: selectedIndex,
+                    children: pages,
+                  ),
                 ),
               ],
             ),
