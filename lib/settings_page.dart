@@ -5,7 +5,9 @@ import 'package:path_provider/path_provider.dart';
 
 class SettingsPage extends StatefulWidget {
   final Dio dio;
-  const SettingsPage({super.key, required this.dio});
+  final String userName;
+  final String userID;
+  const SettingsPage({super.key, required this.dio, required this.userName, required this.userID});
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -21,6 +23,7 @@ class _SettingsPageState extends State<SettingsPage> {
   final TextEditingController _nameController = TextEditingController();
 
   bool _isLoading = true;
+  bool _isEditing = false;
   String _envFilePath = "";
 
   @override
@@ -125,6 +128,7 @@ BASE_URL=${_baseUrlController.text.trim()}
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("设置已保存并应用")));
       _loadSettings(); // 重新加载以刷新 UI
+      setState(() => _isEditing = false); // 保存后退出编辑模式
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("保存失败: $e")));
@@ -136,12 +140,95 @@ BASE_URL=${_baseUrlController.text.trim()}
     if (_isLoading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
 
     return Scaffold(
-      appBar: AppBar(title: const Text("设置")),
+      appBar: AppBar(
+        title: const Text("设置"),
+        actions: [
+          if (!_isEditing)
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () => setState(() => _isEditing = true),
+              tooltip: "编辑配置",
+            )
+          else
+            Row(
+              children: [
+                TextButton.icon(
+                  icon: const Icon(Icons.close),
+                  label: const Text("取消"),
+                  onPressed: () {
+                    _loadSettings(); // 重新加载以恢复原始值
+                    setState(() => _isEditing = false);
+                  },
+                ),
+                TextButton.icon(
+                  icon: const Icon(Icons.check),
+                  label: const Text("保存"),
+                  onPressed: _saveSettings,
+                ),
+              ],
+            ),
+        ],
+      ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            _buildSectionTitle("个人信息"),
+            if (!_isEditing)
+              // 非编辑状态：显示当前姓名学号
+              Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    children: [
+                      const CircleAvatar(
+                        radius: 35,
+                        child: Icon(Icons.person, size: 40),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _nameController.text.isNotEmpty ? _nameController.text : (widget.userName.isNotEmpty ? widget.userName : "未设置姓名"),
+                              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _idController.text.isNotEmpty ? "学号: ${_idController.text}" : (widget.userID.isNotEmpty ? "学号: ${widget.userID}" : "未设置学号"),
+                              style: const TextStyle(fontSize: 14, color: Colors.grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              // 编辑状态：显示可编辑的输入框
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const CircleAvatar(
+                    radius: 35,
+                    child: Icon(Icons.person, size: 40),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        _buildTextField(_nameController, "姓名"),
+                        const SizedBox(height: 12),
+                        _buildTextField(_idController, "学号"),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 24),
             _buildSectionTitle("API 核心配置"),
             _buildTextField(_openaiKeyController, "OPENAI_API_KEY (千问/OpenAI)", obscure: true),
             const SizedBox(height: 12),
@@ -154,31 +241,11 @@ BASE_URL=${_baseUrlController.text.trim()}
               hint: Platform.isWindows ? "C:/Users/.../Outputs" : "移动端默认在软件目录下"),
             
             const SizedBox(height: 24),
-            _buildSectionTitle("个人信息"),
-            Row(
-              children: [
-                Expanded(child: _buildTextField(_idController, "学号")),
-                const SizedBox(width: 12),
-                Expanded(child: _buildTextField(_nameController, "姓名")),
-              ],
-            ),
-            
-            const SizedBox(height: 24),
             _buildSectionTitle("扩展 API"),
             _buildTextField(_gaodeKeyController, "Gaode_API_Key (高德地图)", obscure: true),
             const SizedBox(height: 12),
             _buildTextField(_dashscopeKeyController, "DASHSCOPE_API_KEY (阿里云)", obscure: true),
             
-            const SizedBox(height: 32),
-            ElevatedButton(
-              onPressed: _saveSettings,
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Theme.of(context).primaryColor,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text("保存并应用配置"),
-            ),
             const SizedBox(height: 20),
             Text("当前配置文件路径：\n$_envFilePath", 
               style: const TextStyle(fontSize: 12, color: Colors.grey), textAlign: TextAlign.center),
@@ -199,12 +266,14 @@ BASE_URL=${_baseUrlController.text.trim()}
     return TextField(
       controller: controller,
       obscureText: obscure,
+      readOnly: !_isEditing,
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,
         border: const OutlineInputBorder(),
         floatingLabelBehavior: FloatingLabelBehavior.always,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        enabled: _isEditing,
       ),
     );
   }

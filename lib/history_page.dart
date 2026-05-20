@@ -119,10 +119,21 @@ class _HistoryPageState extends State<HistoryPage> {
                         itemCount: _historyList.length,
                         itemBuilder: (context, index) {
                           String fileKey = _historyList.keys.elementAt(index);
-                          dynamic messagesRaw = _historyList[fileKey];
-                          if (messagesRaw is! List) return const SizedBox.shrink();
+                          dynamic data = _historyList[fileKey];
                           
-                          List<dynamic> messages = messagesRaw;
+                          // 兼容新旧格式：新格式是 Map {messages: [...], summary: "..."}，旧格式是 List
+                          List<dynamic> messages = [];
+                          String summary = "";
+                          
+                          if (data is Map && data.containsKey('messages')) {
+                            messages = data['messages'] as List<dynamic>;
+                            summary = data['summary']?.toString() ?? "";
+                          } else if (data is List) {
+                            messages = data;
+                          } else {
+                            return const SizedBox.shrink();
+                          }
+                          
                           // 提取时间部分 (例如从 2024-5-20/14-30-05.json 提取 14:30:05)
                           String time = fileKey.split('/').last.replaceAll('.json', '').replaceAll('-', ':');
 
@@ -130,8 +141,34 @@ class _HistoryPageState extends State<HistoryPage> {
                             margin: const EdgeInsets.only(bottom: 16),
                             child: ExpansionTile(
                               leading: const Icon(Icons.chat_outlined),
-                              title: Text("对话开启时间: $time"),
+                              title: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      summary.isNotEmpty ? summary : "对话开启时间: $time",
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                  if (summary.isNotEmpty)
+                                    Text(
+                                      time,
+                                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    ),
+                                ],
+                              ),
                               subtitle: Text("本次对话共 ${messages.length} 条消息"),
+                              trailing: TextButton(
+                                child: const Text("继续"),
+                                onPressed: () {
+                                  Navigator.pop(context, {
+                                    "messages": messages, 
+                                    "fileKey": fileKey,
+                                    "summary": summary,
+                                  });
+                                },
+                              ),
                               children: messages.map<Widget>((msg) {
                                 if (msg is! Map) return const SizedBox.shrink();
                                 bool isUser = msg['role'] == 'user';

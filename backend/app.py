@@ -30,6 +30,7 @@ def chat():
         return jsonify({"error": "No JSON data"}), 400
         
     prompt = data.get('prompt')
+    history = data.get('history')  # 可选的历史消息
     print(f">>> 用户消息: {prompt}")
     
     if not prompt:
@@ -37,6 +38,11 @@ def chat():
     
     def generate():
         try:
+            # 如果传入了历史消息，先加载到 agent 的 backlog 中
+            if history:
+                agent.backlog.message = history
+                agent.backlog.reset_path()  # 重置时间为当前，实现“时间重置”
+
             # 使用我们在 core/ai_agent.py 中定义的 stream_chat 方法
             for chunk in agent.stream_chat(prompt):
                 yield chunk

@@ -40,13 +40,38 @@ class Backlog:
         """### 获取当前的对话文本"""
         return self.message
 
+    def reset_path(self):
+        """重置路径为当前时间（用于接续对话时更新文件时间）"""
+        date_str = time.strftime('%Y-%m-%d')
+        time_str = time.strftime('%H-%M-%S')
+        self.path = self.base_path / f"Backlog/{date_str}/{time_str}.json"
+
     def write_text(self):
-        """### 写入文本"""
+        """### 写入文本并生成摘要"""
         # 自动创建父目录（如果不存在）
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # 直接写入文本
         json_data = json.dumps(self.message, ensure_ascii=False, indent=4)
         self.path.write_text(json_data, encoding="utf-8")
+        
+        # 生成并保存摘要
+        self._save_summary()
+
+    def _save_summary(self):
+        """生成对话摘要并保存到 meta 文件"""
+        if not self.message:
+            return
+            
+        try:
+            # 简单提取用户第一句话的前 20 字作为摘要
+            first_user_msg = next((m['content'] for m in self.message if m['role'] == 'user'), "")
+            summary = first_user_msg[:20] if first_user_msg else "新对话"
+            
+            meta_path = self.path.with_suffix('.meta.json')
+            meta_data = {"summary": summary}
+            meta_path.write_text(json.dumps(meta_data, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            print(f"保存摘要失败: {e}")
 
     def load_backlog(self, target_date):
         """
@@ -54,7 +79,7 @@ class Backlog:
         Args:
             target_date (str): 目标日期，格式为 'YYYY-MM-DD'
         Returns:
-            包含所有符合条件对话的字典，键为文件名，值为内容
+            包含所有符合条件对话的字典，键为文件名，值为包含 messages 和 summary 的对象
         """
         results = {}
 
@@ -67,12 +92,30 @@ class Backlog:
         
         # 读取该文件夹下所有的 .json 文件
         for json_file in backlog_path.glob("*.json"):
+            if json_file.suffix != '.json': continue
+            # 跳过 meta 文件
+            if json_file.name.endswith('.meta.json'): continue
+            
             with open(json_file, 'r', encoding='utf-8') as f:
                 try:
                     file_key = f"{backlog_path.name}/{json_file.name}"
                     raw_messages = json.load(f)
                     filtered_messages = [msg for msg in raw_messages if msg.get("role") != "system"]
-                    results[file_key] = filtered_messages
+                    
+                    # 读取摘要
+                    summary = ""
+                    meta_file = json_file.with_suffix('.meta.json')
+                    if meta_file.exists():
+                        try:
+                            meta_data = json.loads(meta_file.read_text(encoding='utf-8'))
+                            summary = meta_data.get("summary", "")
+                        except:
+                            pass
+                            
+                    results[file_key] = {
+                        "messages": filtered_messages,
+                        "summary": summary
+                    }
                     print(f"已读取: {file_key}")
                 except Exception as e:
                     print(f"【错误】读取 {json_file} 失败: {e}")

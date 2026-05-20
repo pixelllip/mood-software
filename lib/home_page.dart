@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
@@ -6,6 +7,7 @@ import 'package:ai_agent/score_result_page.dart';
 import 'package:ai_agent/settings_page.dart';
 import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
+import 'package:path_provider/path_provider.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.dio});
@@ -17,15 +19,56 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int selectedIndex = 0;
+  final GlobalKey<_HomeContentState> _homeContentKey = GlobalKey<_HomeContentState>();
 
-  final String userID = "未知学号";
-  final String userName = "未知用户";
+  String userID = "未知学号";
+  String userName = "未知用户";
+  String? _currentChatSummary;
 
   final List<String> pageTitles = [
     "AI聊天",
     "我的成绩",
     "日程安排",
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUserInfo();
+  }
+
+  Future<void> _loadUserInfo() async {
+    try {
+      final directory = await getApplicationDocumentsDirectory();
+      final file = File('${directory.path}/.env');
+      if (await file.exists()) {
+        final content = await file.readAsString();
+        final lines = content.split('\n');
+        String? newID;
+        String? newName;
+        for (var line in lines) {
+          final trimmedLine = line.trim();
+          if (trimmedLine.contains('=') && !trimmedLine.startsWith('#')) {
+            final parts = trimmedLine.split('=');
+            if (parts.length >= 2) {
+              final key = parts[0].trim();
+              final value = parts.sublist(1).join('=').trim().replaceAll('"', '').replaceAll("'", "");
+              if (key == 'STUDENT_ID') newID = value;
+              if (key == 'STUDENT_NAME') newName = value;
+            }
+          }
+        }
+        if (mounted) {
+          setState(() {
+            if (newID != null && newID.isNotEmpty) userID = newID;
+            if (newName != null && newName.isNotEmpty) userName = newName;
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("主页：加载用户信息失败: $e");
+    }
+  }
 
   void onItemTapped(int index) {
     setState(() {
@@ -83,12 +126,13 @@ class _MyHomePageState extends State<MyHomePage> {
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text("设置"),
-              onTap: () {
+              onTap: () async {
                 Navigator.pop(context); // Close drawer
-                Navigator.push(
+                await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio)),
+                  MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio, userName: userName, userID: userID)),
                 );
+                _loadUserInfo(); // 刷新用户信息
               },
             ),
           ],
@@ -125,27 +169,49 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(pageTitles[selectedIndex]),
+        title: Text(selectedIndex == 0 && _currentChatSummary != null 
+            ? _currentChatSummary! 
+            : pageTitles[selectedIndex]),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (selectedIndex == 0) // 仅在 AI 聊天页面显示历史记录入口
+          if (selectedIndex == 0) ...[
+            IconButton(
+              icon: const Icon(Icons.add_comment),
+              tooltip: "新建对话",
+              onPressed: () {
+                setState(() {
+                  _currentChatSummary = null;
+                });
+                _homeContentKey.currentState?.resetChat();
+              },
+            ),
+            const SizedBox(width: 10),
             IconButton(
               icon: const Icon(Icons.history),
               tooltip: "查看聊天历史",
-              onPressed: () {
-                Navigator.push(
+              onPressed: () async {
+                final result = await Navigator.push(
                   context,
                   MaterialPageRoute(builder: (context) => HistoryPage(dio: widget.dio)),
                 );
+                if (result != null && result is Map) {
+                  setState(() {
+                    _currentChatSummary = result['summary'];
+                  });
+                  _homeContentKey.currentState?.loadHistory(result);
+                }
               },
             ),
+          ],
+          const SizedBox(width:10),
           IconButton(
             icon: const Icon(Icons.settings),
-            onPressed: () {
-              Navigator.push(
+            onPressed: () async {
+              await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio)),
+                MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio, userName: userName, userID: userID)),
               );
+              _loadUserInfo(); // 刷新用户信息
             },
           ),
         ],
@@ -156,7 +222,15 @@ class _MyHomePageState extends State<MyHomePage> {
           ? IndexedStack(
               index: selectedIndex,
               children: [
-                HomeContent(dio: widget.dio),
+                HomeContent(
+                  key: _homeContentKey, 
+                  dio: widget.dio,
+                  onSummaryUpdate: (summary) {
+                    setState(() {
+                      _currentChatSummary = summary;
+                    });
+                  },
+                ),
                 ScorePage(dio: widget.dio),
                 SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
               ],
@@ -169,7 +243,15 @@ class _MyHomePageState extends State<MyHomePage> {
                   child: IndexedStack(
                     index: selectedIndex,
                     children: [
-                      HomeContent(dio: widget.dio),
+                      HomeContent(
+                        key: _homeContentKey, 
+                        dio: widget.dio,
+                        onSummaryUpdate: (summary) {
+                          setState(() {
+                            _currentChatSummary = summary;
+                          });
+                        },
+                      ),
                       ScorePage(dio: widget.dio),
                       SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
                     ],
@@ -183,7 +265,8 @@ class _MyHomePageState extends State<MyHomePage> {
 
 class HomeContent extends StatefulWidget {
   final Dio dio;
-  const HomeContent({super.key, required this.dio});
+  final Function(String)? onSummaryUpdate;
+  const HomeContent({super.key, required this.dio, this.onSummaryUpdate});
 
   @override
   State<HomeContent> createState() => _HomeContentState();
@@ -195,6 +278,38 @@ class _HomeContentState extends State<HomeContent> {
   ];
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+
+  void resetChat() {
+    setState(() {
+      _messages.clear();
+      _messages.add({"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
+    });
+  }
+
+  void loadHistory(dynamic historyData) {
+    List<dynamic> historyMessages = [];
+    
+    if (historyData is Map && historyData.containsKey('messages')) {
+      historyMessages = historyData['messages'] as List<dynamic>;
+    } else if (historyData is List) {
+      historyMessages = historyData;
+    }
+
+    setState(() {
+      _messages.clear();
+      for (var msg in historyMessages) {
+        if (msg is Map) {
+          bool isUser = msg['role'] == 'user';
+          _messages.add({"text": msg['content'] ?? "", "isUser": isUser});
+        }
+      }
+      // 如果历史对话最后一条是 AI 的消息，或者历史为空，保留默认的欢迎消息
+      if (_messages.isEmpty || _messages.last["isUser"] == false) {
+        _messages.insert(0, {"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
+      }
+    });
+    _scrollToBottom();
+  }
 
   void _scrollToBottom() {
     Future.delayed(const Duration(milliseconds: 100), () {
@@ -212,6 +327,13 @@ class _HomeContentState extends State<HomeContent> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
+    // 如果是第一条用户消息，生成摘要并更新 AppBar
+    bool isFirstMessage = _messages.length <= 1; // 只有一条欢迎语或为空
+    if (isFirstMessage && widget.onSummaryUpdate != null) {
+      String summary = text.length > 20 ? "${text.substring(0, 20)}..." : text;
+      widget.onSummaryUpdate!(summary);
+    }
+
     setState(() {
       _messages.add({"text": text, "isUser": true});
     });
@@ -226,9 +348,23 @@ class _HomeContentState extends State<HomeContent> {
 
     try {
       debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
+      
+      // 构建历史上下文发送给后端，以便后端重置时间并生成摘要
+      List<Map<String, dynamic>> historyToSend = [];
+      for (int i = 0; i < _messages.length - 1; i++) {
+        final msg = _messages[i];
+        historyToSend.add({
+          "role": msg["isUser"] ? "user" : "assistant",
+          "content": msg["text"]
+        });
+      }
+
       final response = await widget.dio.post(
         "/chat",
-        data: {"prompt": text},
+        data: {
+          "prompt": text,
+          "history": historyToSend,
+        },
         options: Options(responseType: ResponseType.stream),
       );
 
