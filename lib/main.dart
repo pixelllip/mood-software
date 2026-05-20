@@ -64,8 +64,8 @@ void main() async {
         dio = Dio(BaseOptions(
           baseUrl: baseUrl,
           headers: {"Authorization": "Bearer $openaiKey"},
-          connectTimeout: const Duration(seconds: 15),
-          receiveTimeout: const Duration(seconds: 15),
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 60),
         ));
 
         // 💡 强制禁用代理，直接连接后端

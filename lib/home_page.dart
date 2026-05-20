@@ -8,6 +8,8 @@ import 'package:ai_agent/settings_page.dart';
 import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:ai_agent/schedule_detail_page.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.dio});
@@ -232,7 +234,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   },
                 ),
                 ScorePage(dio: widget.dio),
-                SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
+                SchedulePage(dio: widget.dio, isActive: selectedIndex == 2, studentID: userID, studentName: userName),
               ],
             )
           : Row(
@@ -253,7 +255,7 @@ class _MyHomePageState extends State<MyHomePage> {
                         },
                       ),
                       ScorePage(dio: widget.dio),
-                      SchedulePage(dio: widget.dio, isActive: selectedIndex == 2),
+                      SchedulePage(dio: widget.dio, isActive: selectedIndex == 2, studentID: userID, studentName: userName),
                     ],
                   ),
                 ),
@@ -413,11 +415,17 @@ class _HomeContentState extends State<HomeContent> {
                       bottomRight: Radius.circular(isUser ? 0 : 16),
                     ),
                   ),
-                  child: SelectableText(
-                    msg["text"],
-                    style: TextStyle(
-                      color: isUser ? Colors.white : Colors.black87,
-                      fontSize: 16,
+                  child: MarkdownBody(
+                    data: msg["text"],
+                    selectable: true,
+                    styleSheet: MarkdownStyleSheet(
+                      p: TextStyle(
+                        color: isUser ? Colors.white : Colors.black87,
+                        fontSize: 16,
+                      ),
+                      listBullet: TextStyle(
+                        color: isUser ? Colors.white70 : Colors.black54,
+                      ),
                     ),
                   ),
                 ),
@@ -907,7 +915,15 @@ class _ScorePageState extends State<ScorePage> {
 class SchedulePage extends StatefulWidget {
   final Dio dio;
   final bool isActive;
-  const SchedulePage({super.key, required this.dio, this.isActive = false});
+  final String studentID;
+  final String studentName;
+  const SchedulePage({
+    super.key, 
+    required this.dio, 
+    this.isActive = false,
+    required this.studentID,
+    required this.studentName,
+  });
 
   @override
   State<SchedulePage> createState() => _SchedulePageState();
@@ -917,29 +933,83 @@ class _SchedulePageState extends State<SchedulePage> {
   final TextEditingController _taskController = TextEditingController();
   DateTime _selectedDate = DateTime.now();
   String _itinerary = "";
+  String _summary = ""; // 新增摘要状态
   bool _isLoading = false;
+
+  // 学习弱项相关
+  bool _includeStudyAdvice = false;
+  List<String> _availableSubjects = []; // 动态加载
+  final Set<String> _selectedWeakSubjects = {};
+  bool _isFetchingSubjects = false;
 
   @override
   void initState() {
     super.initState();
-    if (widget.isActive) {
-      _autoLoad();
-    }
+    // 启动时不自动加载，等待页面激活或手动触发
   }
 
   @override
   void didUpdateWidget(SchedulePage oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 关键：当 isActive 从 false 变为 true 时，说明用户切换到了本页
-    if (widget.isActive && !oldWidget.isActive) {
-      _autoLoad();
+
+    // 如果身份信息发生变化，重置并刷新学科列表和日程
+    if (widget.studentID != oldWidget.studentID || widget.studentName != oldWidget.studentName) {
+      setState(() {
+        _availableSubjects = [];
+        _selectedWeakSubjects.clear();
+        _itinerary = "";
+        _summary = "";
+      });
+      
+      // 只有在当前页面是激活状态（被点击选中）时，身份变化才触发加载
+      if (widget.isActive) {
+        _fetchSavedSchedule();
+        _fetchUserSubjects();
+      }
+    } 
+    // 或者：从其他页面切换到当前日程页面时触发加载
+    else if (widget.isActive && !oldWidget.isActive) {
+      _fetchSavedSchedule();
+      _fetchUserSubjects();
     }
   }
 
-  void _autoLoad() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _fetchSavedSchedule();
-    });
+  Future<void> _fetchUserSubjects() async {
+    // 如果是默认值，说明用户还没设置个人信息，直接跳过
+    if (widget.studentID == "未知学号" || widget.studentName == "未知用户" || 
+        (widget.studentID.isEmpty && widget.studentName.isEmpty)) {
+      return;
+    }
+    if (_isFetchingSubjects) return;
+
+    setState(() => _isFetchingSubjects = true);
+    try {
+      final response = await widget.dio.get(
+        "/query",
+        queryParameters: {
+          "id": widget.studentID,
+          "name": widget.studentName,
+        },
+      );
+      
+      if (response.data != null && response.data["scores"] != null) {
+        Map<String, dynamic> scores = Map<String, dynamic>.from(response.data["scores"]);
+        setState(() {
+          _availableSubjects = scores.keys.toList();
+        });
+      }
+    } on DioException catch (e) {
+      if (e.response?.statusCode == 404) {
+        // 404 说明系统里还没这个学生，这是正常情况，清空科目列表即可
+        setState(() => _availableSubjects = []);
+      } else {
+        debugPrint("获取科目列表失败: $e");
+      }
+    } catch (e) {
+      debugPrint("获取科目列表发生非 Dio 错误: $e");
+    } finally {
+      if (mounted) setState(() => _isFetchingSubjects = false);
+    }
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -959,14 +1029,18 @@ class _SchedulePageState extends State<SchedulePage> {
   }
 
   Future<void> _fetchSavedSchedule() async {
+    // 如果组件已经卸载，直接返回防报错
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
-      _itinerary = "";
+      // 移除 _itinerary = ""; 防止切页面时内容闪卸
     });
 
     try {
       final dioInstance = widget.dio;
       final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+
       final response = await dioInstance.post(
         "/schedule",
         data: {
@@ -974,33 +1048,51 @@ class _SchedulePageState extends State<SchedulePage> {
           "date": dateStr,
         },
       );
-      
+
+      if (!mounted) return;
+
+      final fetchedItinerary = response.data["itinerary"]?.toString() ?? "无内容";
+
       setState(() {
-        _itinerary = response.data["itinerary"]?.toString() ?? "无内容";
+        _itinerary = fetchedItinerary;
+        // 如果后端返回了 summary 摘要，也在这里顺便还原
+        if (response.data["summary"] != null) {
+          _summary = response.data["summary"].toString();
+        } else if (fetchedItinerary.contains("今日行程规划建议")) {
+          _summary = "已加载历史日程规划";
+        } else {
+          _summary = "";
+        }
       });
-      
-      if (response.data["from_cache"] != true && _itinerary.contains("暂无存档")) {
-         // 说明没找到，提示用户
-      } else if (response.data["from_cache"] == true) {
-         ScaffoldMessenger.of(context).showSnackBar(
-           SnackBar(content: Text("成功加载 $dateStr 的本地存档")),
-         );
+
+      if (response.data["from_cache"] == true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("成功加载 $dateStr 的本地存档")),
+        );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("读取存档失败: $e")),
-      );
+      debugPrint("读取存档失败: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("读取存档失败: $e")),
+        );
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _generateSchedule() async {
-    if (_taskController.text.trim().isEmpty) {
+    bool hasTasks = _taskController.text.trim().isNotEmpty;
+    bool hasStudyAdvice = _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
+
+    if (!hasTasks && !hasStudyAdvice) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("请输入任务内容")),
+        const SnackBar(content: Text("请输入任务内容或选择弱势学科")),
       );
       return;
     }
@@ -1013,22 +1105,43 @@ class _SchedulePageState extends State<SchedulePage> {
     try {
       final dioInstance = widget.dio;
       final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+      
+      // 构建发送给后端的数据，包含学习弱项信息
+      Map<String, dynamic> requestData = {
+        "tasks": _taskController.text,
+        "city": "440100",
+        "date": dateStr,
+      };
+      
+      // 如果启用了学习建议功能，添加相关数据
+      if (_includeStudyAdvice && _selectedWeakSubjects.isNotEmpty) {
+        requestData["study_weaknesses"] = _selectedWeakSubjects.toList();
+      }
+      
       final response = await dioInstance.post(
         "/schedule",
-        data: {
-          "tasks": _taskController.text,
-          "city": "440100",
-          "date": dateStr,
-        },
+        data: requestData,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 90), // 专门为日程生成增加超时时间
+        ),
       );
       
       if (response.data != null && response.data is Map) {
         setState(() {
-          _itinerary = response.data["itinerary"]?.toString() ?? "服务器返回内容为空";
+          _itinerary = response.data["itinerary"]?.toString() ?? "";
+          _summary = response.data["summary"]?.toString() ?? "已生成日程详细规划";
         });
+        
+        // 跳转至详情页面
+        if (_itinerary.isNotEmpty && mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => ScheduleDetailPage(content: _itinerary)),
+          );
+        }
       } else {
         setState(() {
-          _itinerary = "服务器返回数据格式错误";
+          _summary = "服务器返回数据格式错误";
         });
       }
     } catch (e) {
@@ -1080,6 +1193,88 @@ class _SchedulePageState extends State<SchedulePage> {
               border: OutlineInputBorder(),
             ),
           ),
+          
+          // 学习弱项选择区域
+          const SizedBox(height: 16),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.blueGrey.withOpacity(0.05),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.blueGrey.withOpacity(0.1)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Checkbox(
+                      value: _includeStudyAdvice,
+                      onChanged: (value) {
+                        setState(() {
+                          _includeStudyAdvice = value ?? false;
+                        });
+                        if (_includeStudyAdvice && _availableSubjects.isEmpty) {
+                          _fetchUserSubjects();
+                        }
+                      },
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "根据学习情况提供建议",
+                            style: TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const Text(
+                            "选择你的弱势学科，AI将为你安排针对性的学习时间",
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // 只有勾选了才显示学科选择
+                if (_includeStudyAdvice) ...[
+                  const SizedBox(height: 12),
+                  if (_isFetchingSubjects)
+                    const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  else if (_availableSubjects.isEmpty)
+                    const Text("暂无录入的学科，请先在'我的成绩'中录入", 
+                      style: TextStyle(fontSize: 12, color: Colors.orange))
+                  else
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: _availableSubjects.map((subject) {
+                        final isSelected = _selectedWeakSubjects.contains(subject);
+                        return FilterChip(
+                          label: Text(subject),
+                          selected: isSelected,
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _selectedWeakSubjects.add(subject);
+                              } else {
+                                _selectedWeakSubjects.remove(subject);
+                              }
+                            });
+                          },
+                          backgroundColor: Colors.white,
+                          selectedColor: Theme.of(context).primaryColor,
+                          labelStyle: TextStyle(
+                            color: isSelected ? Colors.white : Colors.black87,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                ],
+              ],
+            ),
+          ),
           const SizedBox(height: 16),
           ElevatedButton.icon(
             onPressed: _isLoading ? null : _generateSchedule,
@@ -1096,29 +1291,42 @@ class _SchedulePageState extends State<SchedulePage> {
             ),
           ),
           const SizedBox(height: 24),
-          if (_itinerary.isNotEmpty) ...[
+          if (_summary.isNotEmpty) ...[
             const Divider(),
             const SizedBox(height: 12),
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.blueGrey.withOpacity(0.1)),
-                ),
-                child: SingleChildScrollView(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // 这里使用 Markdown 解析器会更好，如果没有引入，先用 SelectableText 处理简单的换行
-                      SelectableText(
-                        _itinerary,
-                        style: const TextStyle(fontSize: 16, height: 1.6, color: Colors.black87),
-                      ),
-                    ],
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.05),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.blue.withOpacity(0.1)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.summarize, color: Colors.blue),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text("今日日程概要", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue)),
+                        const SizedBox(height: 4),
+                        Text(_summary, style: const TextStyle(fontSize: 16, color: Colors.black87)),
+                      ],
+                    ),
                   ),
-                ),
+                  TextButton(
+                    onPressed: () {
+                      if (_itinerary.isNotEmpty && mounted) {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => ScheduleDetailPage(content: _itinerary)),
+                        );
+                      }
+                    },
+                    child: const Text("查看详情"),
+                  ),
+                ],
               ),
             ),
           ],
@@ -1126,6 +1334,8 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
     );
   }
+
+
 
   @override
   void dispose() {
