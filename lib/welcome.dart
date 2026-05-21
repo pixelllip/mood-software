@@ -95,11 +95,21 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
+    final baseUrl = _baseUrlController.text.trim();
+    if (baseUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("BASE_URL 不能为空。模拟器可用 10.0.2.2:8080，真机请填写电脑局域网IP:8080"),
+        ),
+      );
+      return;
+    }
+
     await _saveToEnv(); // 保存配置
 
     final dio = Dio(
       BaseOptions(
-        baseUrl: _baseUrlController.text,
+        baseUrl: baseUrl,
         headers: {
           "Authorization": "Bearer ${_openaiKeyController.text.trim()}",
         },
@@ -233,9 +243,14 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
                 const SizedBox(height: 8),
                 TextField(
                   controller: _baseUrlController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: "服务器地址",
-                    prefixIcon: Icon(Icons.link),
+                    hintText: Platform.isWindows
+                        ? "本机调试用 http://127.0.0.1:8080"
+                        : Platform.isAndroid
+                        ? "安卓真机请填写电脑局域网IP:8080，模拟器可用 10.0.2.2:8080"
+                        : "iOS真机请填写电脑局域网IP:8080，模拟器可用 localhost:8080",
+                    prefixIcon: const Icon(Icons.link),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -291,14 +306,14 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
           tooltip: "获取密钥",
           onPressed: () async {
             final uri = Uri.parse(url);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri);
-            } else {
-              if (mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
-              }
+            final launched = await launchUrl(
+              uri,
+              mode: LaunchMode.externalApplication,
+            );
+            if (!launched && mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
             }
           },
         ),

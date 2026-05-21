@@ -85,23 +85,21 @@ void main() async {
 
       // 核心校验
       final openaiKey = config['OPENAI_API_KEY'];
+      final explicitBaseUrl = config['BASE_URL']?.trim();
+      final useDesktopDefault =
+          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+      String? baseUrl;
 
-      // 智能默认地址逻辑：
-      // Android 模拟器使用 10.0.2.2 访问主机
-      // 真机使用设备实际 IP
-      String defaultUrl = "http://10.0.2.2:8080";
-      if (Platform.isAndroid) {
-        defaultUrl = "http://10.0.2.2:8080";
-      } else if (Platform.isIOS) {
-        // iOS 使用 localhost
-        defaultUrl = "http://localhost:8080";
-      } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        // 桌面端直接连接本机后端
-        defaultUrl = "http://127.0.0.1:8080";
+      if (explicitBaseUrl != null && explicitBaseUrl.isNotEmpty) {
+        baseUrl = explicitBaseUrl;
+      } else if (useDesktopDefault) {
+        baseUrl = "http://127.0.0.1:8080";
       }
-      final baseUrl = config['BASE_URL'] ?? defaultUrl;
 
-      if (openaiKey != null && openaiKey.isNotEmpty) {
+      if (openaiKey != null &&
+          openaiKey.isNotEmpty &&
+          baseUrl != null &&
+          baseUrl.isNotEmpty) {
         dio = Dio(
           BaseOptions(
             baseUrl: baseUrl,
