@@ -25,6 +25,7 @@ class _WelcomePageState extends State<WelcomePage> {
   final TextEditingController _dashscopeKeyController = TextEditingController();
   final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _outputDirController = TextEditingController();
+  final List<Map<String, TextEditingController>> _extensionApiItems = [];
 
   @override
   void initState() {
@@ -69,15 +70,82 @@ class _WelcomePageState extends State<WelcomePage> {
                   break;
                 case 'Gaode_API_Key':
                   _gaodeKeyController.text = value;
+                  final gaodeExists = _extensionApiItems.any(
+                    (e) =>
+                        (e['key']?.text.trim().isNotEmpty == true &&
+                            e['key']?.text.trim() == value) ||
+                        (e['name']?.text.trim().toLowerCase() == 'gaode'),
+                  );
+                  if (!gaodeExists) {
+                    _extensionApiItems.add({
+                      'name': TextEditingController(text: 'Gaode'),
+                      'purpose': TextEditingController(text: '高德地图'),
+                      'key': TextEditingController(text: value),
+                    });
+                  }
                   break;
                 case 'DASHSCOPE_API_KEY':
                   _dashscopeKeyController.text = value;
+                  final dashExists = _extensionApiItems.any(
+                    (e) =>
+                        (e['key']?.text.trim().isNotEmpty == true &&
+                            e['key']?.text.trim() == value) ||
+                        (e['name']?.text.trim().toLowerCase() == 'dashscope'),
+                  );
+                  if (!dashExists) {
+                    _extensionApiItems.add({
+                      'name': TextEditingController(text: 'DashScope'),
+                      'purpose': TextEditingController(text: '阿里云 DashScope'),
+                      'key': TextEditingController(text: value),
+                    });
+                  }
                   break;
                 case 'OUTPUT_DIR':
                   _outputDirController.text = value;
                   break;
+                default:
+                  final extMatch = RegExp(
+                    r'^EXT_API_(NAME|PURPOSE|KEY)_(\d+)\$',
+                  ).firstMatch(key);
+                  if (extMatch != null) {
+                    final field = extMatch.group(1)!.toLowerCase();
+                    final index = int.parse(extMatch.group(2)!) - 1;
+                    while (_extensionApiItems.length <= index) {
+                      _extensionApiItems.add({
+                        'name': TextEditingController(),
+                        'purpose': TextEditingController(),
+                        'key': TextEditingController(),
+                      });
+                    }
+                    if (field == 'name') {
+                      _extensionApiItems[index]['name']?.text = value;
+                    } else if (field == 'purpose') {
+                      _extensionApiItems[index]['purpose']?.text = value;
+                    } else if (field == 'key') {
+                      _extensionApiItems[index]['key']?.text = value;
+                    }
+                  }
+                  break;
               }
             }
+          }
+        }
+        if (_gaodeKeyController.text.trim().isEmpty) {
+          final gaodeEntry = _extensionApiItems.firstWhere(
+            (e) => e['name']?.text.trim().toLowerCase() == 'gaode',
+            orElse: () => {},
+          );
+          if (gaodeEntry.isNotEmpty) {
+            _gaodeKeyController.text = gaodeEntry['key']?.text.trim() ?? '';
+          }
+        }
+        if (_dashscopeKeyController.text.trim().isEmpty) {
+          final dashEntry = _extensionApiItems.firstWhere(
+            (e) => e['name']?.text.trim().toLowerCase() == 'dashscope',
+            orElse: () => {},
+          );
+          if (dashEntry.isNotEmpty) {
+            _dashscopeKeyController.text = dashEntry['key']?.text.trim() ?? '';
           }
         }
         setState(() {}); // 刷新 UI 展示读取到的内容
@@ -95,11 +163,21 @@ class _WelcomePageState extends State<WelcomePage> {
       return;
     }
 
+    final baseUrl = _baseUrlController.text.trim();
+    if (baseUrl.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("BASE_URL 不能为空。模拟器可用 10.0.2.2:8080，真机请填写电脑局域网IP:8080"),
+        ),
+      );
+      return;
+    }
+
     await _saveToEnv(); // 保存配置
 
     final dio = Dio(
       BaseOptions(
-        baseUrl: _baseUrlController.text,
+        baseUrl: baseUrl,
         headers: {
           "Authorization": "Bearer ${_openaiKeyController.text.trim()}",
         },
@@ -121,32 +199,72 @@ class _WelcomePageState extends State<WelcomePage> {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/.env');
 
-      final content =
-          '''
-# 自动生成的配置信息
-BASE_PATH="${directory.path}"
+      void addLegacyExtension(String label, String purpose, String keyValue) {
+        if (keyValue.isEmpty) return;
+        final exists = _extensionApiItems.any(
+          (e) =>
+              (e['key']?.text.trim().isNotEmpty == true &&
+                  e['key']?.text.trim() == keyValue) ||
+              (e['name']?.text.trim().toLowerCase() == label.toLowerCase()),
+        );
+        if (!exists) {
+          _extensionApiItems.add({
+            'name': TextEditingController(text: label),
+            'purpose': TextEditingController(text: purpose),
+            'key': TextEditingController(text: keyValue),
+          });
+        }
+      }
 
-# 个人信息
-STUDENT_ID=${_idController.text.trim()}
-STUDENT_NAME=${_nameController.text.trim()}
+      addLegacyExtension('Gaode', '高德地图', _gaodeKeyController.text.trim());
+      addLegacyExtension(
+        'DashScope',
+        '阿里云 DashScope',
+        _dashscopeKeyController.text.trim(),
+      );
 
-# 千问/OpenAI API 密钥
-OPENAI_API_KEY=${_openaiKeyController.text.trim()}
+      final buffer = StringBuffer();
+      buffer.writeln('# 自动生成的配置信息');
+      buffer.writeln('BASE_PATH="${directory.path}"');
+      buffer.writeln();
+      buffer.writeln('# 个人信息');
+      buffer.writeln('STUDENT_ID=${_idController.text.trim()}');
+      buffer.writeln('STUDENT_NAME=${_nameController.text.trim()}');
+      buffer.writeln();
+      buffer.writeln('# 千问/OpenAI API 密钥');
+      buffer.writeln('OPENAI_API_KEY=${_openaiKeyController.text.trim()}');
+      buffer.writeln();
+      buffer.writeln('# 高德API密钥');
+      buffer.writeln('Gaode_API_Key=${_gaodeKeyController.text.trim()}');
+      buffer.writeln();
+      buffer.writeln('# 阿里云 DashScope API 密钥');
+      buffer.writeln(
+        'DASHSCOPE_API_KEY=${_dashscopeKeyController.text.trim()}',
+      );
+      buffer.writeln();
+      buffer.writeln('# 服务器地址');
+      buffer.writeln('BASE_URL=${_baseUrlController.text.trim()}');
+      buffer.writeln();
+      buffer.writeln('# 输出文件目录');
+      buffer.writeln('OUTPUT_DIR=${_outputDirController.text.trim()}');
 
-# 高德API密钥
-Gaode_API_Key=${_gaodeKeyController.text.trim()}
+      if (_extensionApiItems.isNotEmpty) {
+        buffer.writeln();
+        buffer.writeln('# 扩展 API 条目');
+        for (var i = 0; i < _extensionApiItems.length; i++) {
+          buffer.writeln(
+            'EXT_API_NAME_${i + 1}=${_extensionApiItems[i]['name']?.text.trim()}',
+          );
+          buffer.writeln(
+            'EXT_API_PURPOSE_${i + 1}=${_extensionApiItems[i]['purpose']?.text.trim()}',
+          );
+          buffer.writeln(
+            'EXT_API_KEY_${i + 1}=${_extensionApiItems[i]['key']?.text.trim()}',
+          );
+        }
+      }
 
-# 阿里云 DashScope API 密钥
-DASHSCOPE_API_KEY=${_dashscopeKeyController.text.trim()}
-
-# 服务器地址
-BASE_URL=${_baseUrlController.text.trim()}
-
-# 输出文件目录
-OUTPUT_DIR=${_outputDirController.text.trim()}
-''';
-
-      await file.writeAsString(content);
+      await file.writeAsString(buffer.toString());
       debugPrint("配置已保存至: ${file.path}");
     } catch (e) {
       debugPrint("保存失败: $e");
@@ -233,9 +351,14 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
                 const SizedBox(height: 8),
                 TextField(
                   controller: _baseUrlController,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: "服务器地址",
-                    prefixIcon: Icon(Icons.link),
+                    hintText: Platform.isWindows
+                        ? "本机调试用 http://真机IP地址:8080"
+                        : Platform.isAndroid
+                        ? "安卓真机请填写电脑局域网IP:8080，模拟器可用 10.0.2.2:8080"
+                        : "iOS真机请填写电脑局域网IP:8080，模拟器可用 localhost:8080",
+                    prefixIcon: const Icon(Icons.link),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -291,14 +414,14 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
           tooltip: "获取密钥",
           onPressed: () async {
             final uri = Uri.parse(url);
-            if (await canLaunchUrl(uri)) {
-              await launchUrl(uri);
-            } else {
-              if (mounted) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
-              }
+            final launched = await launchUrl(
+              uri,
+              mode: LaunchMode.externalApplication,
+            );
+            if (!launched && mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
             }
           },
         ),
@@ -315,6 +438,11 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
     _dashscopeKeyController.dispose();
     _baseUrlController.dispose();
     _outputDirController.dispose();
+    for (final item in _extensionApiItems) {
+      item['name']?.dispose();
+      item['purpose']?.dispose();
+      item['key']?.dispose();
+    }
     super.dispose();
   }
 }

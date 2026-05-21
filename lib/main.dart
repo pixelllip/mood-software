@@ -2,7 +2,6 @@ import 'dart:io';
 import 'package:ai_agent/home_page.dart';
 import 'package:ai_agent/welcome.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // 💡 新增：用于读取资源文件
 import 'package:flutter/widget_previews.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart'; // 💡 新增：用于配置底层 HttpClient
@@ -40,29 +39,52 @@ void main() async {
   Dio? dio;
   try {
     final directory = await getApplicationDocumentsDirectory();
-    File file = File('${directory.path}/.env');
+    final appEnvFile = File('${directory.path}/.env');
+    File? fileToRead;
 
-    // 💡 手机调试核心逻辑：如果是移动端，尝试从资源中同步 lib/.env 到存储空间
+    // 💡 移动端不再依赖打包资产 lib/.env；从应用数据目录读取或生成模板
     if (Platform.isAndroid || Platform.isIOS) {
-      try {
-        // 读取 asset
-        String content = await rootBundle.loadString('lib/.env');
-        // 写入本地存储 (覆盖模式，确保调试时 Key 保持最新)
-        await file.writeAsString(content);
-        debugPrint("已将 lib/.env 同步到移动端存储: ${file.path}");
-      } catch (e) {
-        debugPrint("未在资源中找到 lib/.env，将使用已有配置或进入欢迎页");
-      }
+      fileToRead = appEnvFile;
     } else {
       // Windows 桌面端逻辑：优先读项目源码下的 lib/.env
-      File devFile = File('lib/.env');
+      final devFile = File('lib/.env');
       if (await devFile.exists()) {
-        file = devFile;
+        fileToRead = devFile;
+      } else if (await appEnvFile.exists()) {
+        fileToRead = appEnvFile;
       }
     }
 
-    if (await file.exists()) {
-      final content = await file.readAsString();
+    if (fileToRead == null || !await fileToRead.exists()) {
+      const defaultEnv = '''# 自动生成的空白配置文件
+BASE_PATH=""
+
+# 个人信息
+STUDENT_ID=
+STUDENT_NAME=
+
+# OPENAI / 千问 API 密钥
+OPENAI_API_KEY=
+
+# 高德地图 API
+Gaode_API_Key=
+
+# 阿里云 DashScope API
+DASHSCOPE_API_KEY=
+
+# 后端服务器地址
+BASE_URL=http://127.0.0.1:8080
+
+# 输出文件目录
+OUTPUT_DIR=""
+''';
+      await appEnvFile.writeAsString(defaultEnv);
+      debugPrint("未找到 .env，已生成空模板: ${appEnvFile.path}");
+      fileToRead = appEnvFile;
+    }
+
+    if (await fileToRead.exists()) {
+      final content = await fileToRead.readAsString();
       final lines = content.split('\n');
       Map<String, String> config = {};
 
@@ -85,23 +107,21 @@ void main() async {
 
       // 核心校验
       final openaiKey = config['OPENAI_API_KEY'];
+      final explicitBaseUrl = config['BASE_URL']?.trim();
+      final useDesktopDefault =
+          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
+      String? baseUrl;
 
-      // 智能默认地址逻辑：
-      // Android 模拟器使用 10.0.2.2 访问主机
-      // 真机使用设备实际 IP
-      String defaultUrl = "http://10.0.2.2:8080";
-      if (Platform.isAndroid) {
-        defaultUrl = "http://10.0.2.2:8080";
-      } else if (Platform.isIOS) {
-        // iOS 使用 localhost
-        defaultUrl = "http://localhost:8080";
-      } else if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
-        // 桌面端直接连接本机后端
-        defaultUrl = "http://127.0.0.1:8080";
+      if (explicitBaseUrl != null && explicitBaseUrl.isNotEmpty) {
+        baseUrl = explicitBaseUrl;
+      } else if (useDesktopDefault) {
+        baseUrl = "http://127.0.0.1:8080";
       }
-      final baseUrl = config['BASE_URL'] ?? defaultUrl;
 
-      if (openaiKey != null && openaiKey.isNotEmpty) {
+      if (openaiKey != null &&
+          openaiKey.isNotEmpty &&
+          baseUrl != null &&
+          baseUrl.isNotEmpty) {
         dio = Dio(
           BaseOptions(
             baseUrl: baseUrl,
