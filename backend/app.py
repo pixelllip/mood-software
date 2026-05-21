@@ -12,6 +12,16 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 💡 平台路径自动修正逻辑
+base_path = os.getenv("BASE_PATH", ".")
+if sys.platform == 'win32' and base_path.startswith('/storage/emulated/'):
+    # 如果在 Windows 上运行且路径是安卓格式，修正为本地目录
+    new_path = os.path.join(os.path.expanduser("~"), "Documents", "Aegis Academic")
+    os.environ["BASE_PATH"] = new_path
+    print(f">>> 检测到 Windows 环境，已将安卓路径修正为: {new_path}")
+    if not os.path.exists(new_path):
+        os.makedirs(new_path)
+
 app = Flask(__name__)
 
 # 初始化 Agent
@@ -56,6 +66,14 @@ def chat():
 def query():
     student_id = request.args.get('id')
     name = request.args.get('name')
+    print(f">>> 查询请求: id={student_id}, name={name}")
+    
+    # 强制重新加载数据以确保路径正确并包含最新信息
+    score_service.load_data()
+    print(f">>> 当前加载的学生数量: {len(score_service.students)}")
+    if score_service.students:
+        print(f">>> 第一个学生 ID: {score_service.students[0].student_id}")
+
     results = score_service.query_students(student_id=student_id, name=name)
     if results:
         return jsonify({
@@ -201,11 +219,11 @@ def get_history_list():
     results = agent.backlog.load_backlog(target_date)
     return jsonify(results)
 
-if __name__ == '__main__':
+def start_server():
     print("\n" + "="*50)
-    print("服务启动中...")
-    print("请手动重启此脚本以应用更改！")
-    print("请在 Flutter 设置中填入地址: http://127.0.0.1:8080")
+    print("星火学伴服务启动中...")
     print("="*50 + "\n")
-    # debug=True 模式下会启动两个进程，如果不希望看到两次启动，可以设为 False
     app.run(host='0.0.0.0', port=8080, debug=False)
+
+if __name__ == '__main__':
+    start_server()

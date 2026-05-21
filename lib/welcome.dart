@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
 import 'home_page.dart';
 import 'dart:io';
@@ -22,12 +23,15 @@ class _WelcomePageState extends State<WelcomePage> {
   final TextEditingController _openaiKeyController = TextEditingController();
   final TextEditingController _gaodeKeyController = TextEditingController();
   final TextEditingController _dashscopeKeyController = TextEditingController();
-  final TextEditingController _baseUrlController = TextEditingController(text: "http://192.168.1.5:8080");
+  final TextEditingController _baseUrlController = TextEditingController();
   final TextEditingController _outputDirController = TextEditingController();
 
   @override
   void initState() {
     super.initState();
+    _baseUrlController.text = Platform.isWindows
+        ? "http://127.0.0.1:8080"
+        : "http://10.0.2.2:8080";
     _loadExistingSettings();
   }
 
@@ -44,15 +48,34 @@ class _WelcomePageState extends State<WelcomePage> {
             final parts = trimmedLine.split('=');
             if (parts.length >= 2) {
               final key = parts[0].trim();
-              final value = parts.sublist(1).join('=').trim().replaceAll('"', '').replaceAll("'", "");
+              final value = parts
+                  .sublist(1)
+                  .join('=')
+                  .trim()
+                  .replaceAll('"', '')
+                  .replaceAll("'", "");
               switch (key) {
-                case 'OPENAI_API_KEY': _openaiKeyController.text = value; break;
-                case 'BASE_URL': _baseUrlController.text = value; break;
-                case 'STUDENT_ID': _idController.text = value; break;
-                case 'STUDENT_NAME': _nameController.text = value; break;
-                case 'Gaode_API_Key': _gaodeKeyController.text = value; break;
-                case 'DASHSCOPE_API_KEY': _dashscopeKeyController.text = value; break;
-                case 'OUTPUT_DIR': _outputDirController.text = value; break;
+                case 'OPENAI_API_KEY':
+                  _openaiKeyController.text = value;
+                  break;
+                case 'BASE_URL':
+                  _baseUrlController.text = value;
+                  break;
+                case 'STUDENT_ID':
+                  _idController.text = value;
+                  break;
+                case 'STUDENT_NAME':
+                  _nameController.text = value;
+                  break;
+                case 'Gaode_API_Key':
+                  _gaodeKeyController.text = value;
+                  break;
+                case 'DASHSCOPE_API_KEY':
+                  _dashscopeKeyController.text = value;
+                  break;
+                case 'OUTPUT_DIR':
+                  _outputDirController.text = value;
+                  break;
               }
             }
           }
@@ -66,9 +89,9 @@ class _WelcomePageState extends State<WelcomePage> {
 
   void _completeSetup() async {
     if (_openaiKeyController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("OPENAI_API_KEY 是必填项")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("OPENAI_API_KEY 是必填项")));
       return;
     }
 
@@ -98,7 +121,8 @@ class _WelcomePageState extends State<WelcomePage> {
       final directory = await getApplicationDocumentsDirectory();
       final file = File('${directory.path}/.env');
 
-      final content = '''
+      final content =
+          '''
 # 自动生成的配置信息
 BASE_PATH="${directory.path}"
 
@@ -132,10 +156,7 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("欢迎使用星火学伴"),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text("欢迎使用星火学伴"), centerTitle: true),
       body: Stepper(
         type: StepperType.vertical,
         currentStep: _currentStep,
@@ -184,37 +205,30 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
             title: const Text("密钥配置"),
             subtitle: const Text("配置各项 API 密钥"),
             isActive: _currentStep >= 1,
-            state: _currentStep > 1 ? StepState.complete : (_currentStep == 1 ? StepState.editing : StepState.indexed),
+            state: _currentStep > 1
+                ? StepState.complete
+                : (_currentStep == 1 ? StepState.editing : StepState.indexed),
             content: Column(
               children: [
-                TextField(
-                  controller: _openaiKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "OPENAI_API_KEY (必填)",
-                    hintText: "千问/OpenAI API 密钥",
-                    prefixIcon: Icon(Icons.vpn_key),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _openaiKeyController,
+                  "OPENAI_API_KEY (必填)",
+                  "https://dashscope.console.aliyun.com/apiKey",
+                  Icons.vpn_key,
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _gaodeKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "Gaode_API_Key (可选)",
-                    hintText: "高德地图 API 密钥",
-                    prefixIcon: Icon(Icons.map),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _gaodeKeyController,
+                  "Gaode_API_Key (可选)",
+                  "https://console.amap.com/dev/key/app",
+                  Icons.map,
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _dashscopeKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "DASHSCOPE_API_KEY (可选)",
-                    hintText: "阿里云 DashScope 密钥",
-                    prefixIcon: Icon(Icons.cloud),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _dashscopeKeyController,
+                  "DASHSCOPE_API_KEY (可选)",
+                  "https://dashscope.console.aliyun.com/apiKey",
+                  Icons.cloud,
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -251,6 +265,44 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildKeyField(
+    TextEditingController controller,
+    String label,
+    String url,
+    IconData icon,
+  ) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: Icon(icon),
+            ),
+            obscureText: true,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.open_in_new, color: Colors.blue),
+          tooltip: "获取密钥",
+          onPressed: () async {
+            final uri = Uri.parse(url);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri);
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
+              }
+            }
+          },
+        ),
+      ],
     );
   }
 
