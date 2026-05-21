@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
 import 'home_page.dart';
 import 'dart:io';
@@ -187,34 +188,25 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
             state: _currentStep > 1 ? StepState.complete : (_currentStep == 1 ? StepState.editing : StepState.indexed),
             content: Column(
               children: [
-                TextField(
-                  controller: _openaiKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "OPENAI_API_KEY (必填)",
-                    hintText: "千问/OpenAI API 密钥",
-                    prefixIcon: Icon(Icons.vpn_key),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _openaiKeyController, 
+                  "OPENAI_API_KEY (必填)", 
+                  "https://dashscope.console.aliyun.com/apiKey",
+                  Icons.vpn_key
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _gaodeKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "Gaode_API_Key (可选)",
-                    hintText: "高德地图 API 密钥",
-                    prefixIcon: Icon(Icons.map),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _gaodeKeyController, 
+                  "Gaode_API_Key (可选)", 
+                  "https://console.amap.com/dev/key/app",
+                  Icons.map
                 ),
                 const SizedBox(height: 8),
-                TextField(
-                  controller: _dashscopeKeyController,
-                  decoration: const InputDecoration(
-                    labelText: "DASHSCOPE_API_KEY (可选)",
-                    hintText: "阿里云 DashScope 密钥",
-                    prefixIcon: Icon(Icons.cloud),
-                  ),
-                  obscureText: true,
+                _buildKeyField(
+                  _dashscopeKeyController, 
+                  "DASHSCOPE_API_KEY (可选)", 
+                  "https://dashscope.console.aliyun.com/apiKey",
+                  Icons.cloud
                 ),
                 const SizedBox(height: 8),
                 TextField(
@@ -251,6 +243,39 @@ OUTPUT_DIR=${_outputDirController.text.trim()}
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildKeyField(TextEditingController controller, String label, String url, IconData icon) {
+    return Row(
+      children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            decoration: InputDecoration(
+              labelText: label,
+              prefixIcon: Icon(icon),
+            ),
+            obscureText: true,
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.open_in_new, color: Colors.blue),
+          tooltip: "获取密钥",
+          onPressed: () async {
+            final uri = Uri.parse(url);
+            if (await canLaunchUrl(uri)) {
+              await launchUrl(uri);
+            } else {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text("无法打开链接: $url")),
+                );
+              }
+            }
+          },
+        ),
+      ],
     );
   }
 

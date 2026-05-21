@@ -72,9 +72,9 @@ class _SettingsPageState extends State<SettingsPage> {
         }
       }
       
-      // 移动端逻辑：如果没填，默认使用软件目录
+      // 移动端逻辑：如果没填，默认使用 Aegis Academic 目录
       if (_outputDirController.text.isEmpty && (Platform.isAndroid || Platform.isIOS)) {
-        _outputDirController.text = "${directory.path}/AI_Agent_Outputs";
+        _outputDirController.text = "/storage/emulated/0/Aegis Academic";
       }
     } catch (e) {
       debugPrint("加载失败: $e");
@@ -91,7 +91,7 @@ class _SettingsPageState extends State<SettingsPage> {
       // 移动端如果没有填，自动分配目录
       String outputDir = _outputDirController.text.trim();
       if (outputDir.isEmpty && (Platform.isAndroid || Platform.isIOS)) {
-        outputDir = "${directory.path}/AI_Agent_Outputs";
+        outputDir = "/storage/emulated/0/Aegis Academic";
       }
 
       final content = '''
