@@ -4,9 +4,10 @@ import com.aegis.backend.core.EnvConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
-@Serializable
 data class StudentData(
     val student_id: String,
     val name: String,
@@ -25,6 +26,16 @@ class StudentScoreService {
         loadData()
     }
 
+    /** 安全地将任意 score 值转为 Double */
+    private fun toDoubleSafe(value: Any?): Double {
+        return when (value) {
+            is Number -> value.toDouble()
+            is String -> value.toDoubleOrNull() ?: 0.0
+            else -> 0.0
+        }
+    }
+
+    /** 从 JSON 安全加载（兼容字符串分数） */
     fun loadData() {
         try {
             if (!dataFile.exists()) {
@@ -32,7 +43,19 @@ class StudentScoreService {
                 return
             }
             val text = dataFile.readText(Charsets.UTF_8)
-            students = json.decodeFromString<List<StudentData>>(text).toMutableList()
+            val rawArray = org.json.JSONArray(text)
+            students = mutableListOf()
+            for (i in 0 until rawArray.length()) {
+                val obj = rawArray.getJSONObject(i)
+                val sid = obj.optString("student_id", "")
+                val name = obj.optString("name", "")
+                val scoresJson = obj.optJSONObject("scores") ?: JSONObject()
+                val scores = mutableMapOf<String, Double>()
+                for (key in scoresJson.keys()) {
+                    scores[key] = toDoubleSafe(scoresJson.get(key))
+                }
+                students.add(StudentData(student_id = sid, name = name, scores = scores))
+            }
         } catch (_: Exception) {
             students = mutableListOf()
         }
@@ -76,10 +99,14 @@ class StudentScoreService {
 
     fun queryStudents(studentId: String? = null, name: String? = null): List<StudentData> {
         loadData() // 确保最新数据
-        return when {
-            studentId != null -> students.filter { it.student_id == studentId }
-            name != null -> students.filter { name.lowercase() in it.name.lowercase() }
-            else -> emptyList()
+
+        var result = students.toList()
+        if (studentId != null) {
+            result = result.filter { it.student_id == studentId }
         }
+        if (name != null) {
+            result = result.filter { name.lowercase() in it.name.lowercase() }
+        }
+        return result
     }
 }

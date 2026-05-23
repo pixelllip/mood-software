@@ -8,14 +8,25 @@ import 'package:ai_agent/score_result_page.dart';
 import 'package:ai_agent/settings_page.dart';
 import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:ai_agent/schedule_detail_page.dart';
+import 'package:ai_agent/local_backend.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.dio});
+  const MyHomePage({
+    super.key,
+    required this.dio,
+    this.useDirectApi = false,
+    this.directBaseUrl,
+    this.directApiKey,
+    this.directModel,
+  });
   final Dio dio;
+  final bool useDirectApi;
+  final String? directBaseUrl;
+  final String? directApiKey;
+  final String? directModel;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -242,6 +253,10 @@ class _MyHomePageState extends State<MyHomePage> {
                 HomeContent(
                   key: _homeContentKey,
                   dio: widget.dio,
+                  useDirectApi: widget.useDirectApi,
+                  directBaseUrl: widget.directBaseUrl,
+                  directApiKey: widget.directApiKey,
+                  directModel: widget.directModel,
                   onSummaryUpdate: (summary) {
                     setState(() {
                       _currentChatSummary = summary;
@@ -254,6 +269,10 @@ class _MyHomePageState extends State<MyHomePage> {
                   isActive: selectedIndex == 2,
                   studentID: userID,
                   studentName: userName,
+                  useDirectApi: widget.useDirectApi,
+                  directBaseUrl: widget.directBaseUrl,
+                  directApiKey: widget.directApiKey,
+                  directModel: widget.directModel,
                 ),
               ],
             )
@@ -268,6 +287,10 @@ class _MyHomePageState extends State<MyHomePage> {
                       HomeContent(
                         key: _homeContentKey,
                         dio: widget.dio,
+                        useDirectApi: widget.useDirectApi,
+                        directBaseUrl: widget.directBaseUrl,
+                        directApiKey: widget.directApiKey,
+                        directModel: widget.directModel,
                         onSummaryUpdate: (summary) {
                           setState(() {
                             _currentChatSummary = summary;
@@ -280,6 +303,10 @@ class _MyHomePageState extends State<MyHomePage> {
                         isActive: selectedIndex == 2,
                         studentID: userID,
                         studentName: userName,
+                        useDirectApi: widget.useDirectApi,
+                        directBaseUrl: widget.directBaseUrl,
+                        directApiKey: widget.directApiKey,
+                        directModel: widget.directModel,
                       ),
                     ],
                   ),
@@ -293,7 +320,19 @@ class _MyHomePageState extends State<MyHomePage> {
 class HomeContent extends StatefulWidget {
   final Dio dio;
   final Function(String)? onSummaryUpdate;
-  const HomeContent({super.key, required this.dio, this.onSummaryUpdate});
+  final bool useDirectApi;
+  final String? directBaseUrl;
+  final String? directApiKey;
+  final String? directModel;
+  const HomeContent({
+    super.key,
+    required this.dio,
+    this.onSummaryUpdate,
+    this.useDirectApi = false,
+    this.directBaseUrl,
+    this.directApiKey,
+    this.directModel,
+  });
 
   @override
   State<HomeContent> createState() => _HomeContentState();
@@ -453,36 +492,97 @@ class _HomeContentState extends State<HomeContent> {
     int aiMsgIndex = _messages.length - 1;
 
     try {
-      debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
-
-      // 构建历史上下文发送给后端，以便后端重置时间并生成摘要
-      List<Map<String, dynamic>> historyToSend = [];
+      // 构建历史上下文发送给后端
+      List<Map<String, String>> historyToSend = [];
       for (int i = 0; i < _messages.length - 1; i++) {
         final msg = _messages[i];
         historyToSend.add({
           "role": msg["isUser"] ? "user" : "assistant",
-          "content": msg["text"],
+          "content": msg["text"] as String,
         });
       }
 
-      final response = await widget.dio.post(
-        "/chat",
-        data: {"prompt": text, "history": historyToSend},
-        options: Options(responseType: ResponseType.stream),
-      );
+      if (widget.useDirectApi) {
+        // 📱 手机端直连 AI API
+        debugPrint(">>> 手机端直连 AI API");
+        final baseUrl = widget.directBaseUrl;
+        final apiKey = widget.directApiKey;
+        final model = widget.directModel;
 
-      final stream = response.data.stream as Stream<Uint8List>;
+        if (baseUrl == null || apiKey == null || model == null) {
+          setState(() {
+            _messages[aiMsgIndex]["text"] = "AI 配置不完整，请先在设置中配置 AI 服务。";
+          });
+          return;
+        }
 
-      await for (final chunk in stream.cast<List<int>>().transform(
-        utf8.decoder,
-      )) {
-        setState(() {
-          _messages[aiMsgIndex]["text"] =
-              (_messages[aiMsgIndex]["text"] as String) + chunk;
-        });
-        _scrollToBottom();
+        // 构建消息列表（含系统提示）
+        final apiMessages = [
+          {"role": "system", "content": "你是一个 helpful 的 AI 学习助手。"},
+          ...historyToSend,
+        ];
+
+        final stream = directStreamChat(
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: model,
+          messages: apiMessages,
+        );
+
+        await for (final chunk in stream) {
+          if (!mounted) break;
+          setState(() {
+            _messages[aiMsgIndex]["text"] =
+                (_messages[aiMsgIndex]["text"] as String) + chunk;
+          });
+          _scrollToBottom();
+        }
+
+        // 📱 手机端：将对话保存到本地 backlog 文件
+        if (!mounted) return;
+        final backlogMessages = <BacklogMessage>[];
+        for (final msg in _messages) {
+          final role = msg["isUser"] == true ? "user" : "assistant";
+          final content = msg["text"] as String;
+          if (content.isNotEmpty) {
+            backlogMessages.add(BacklogMessage(role: role, content: content));
+          }
+        }
+        final firstUserMsg =
+            backlogMessages
+                .where((m) => m.role == 'user')
+                .firstOrNull
+                ?.content ??
+            '';
+        final summary = firstUserMsg.length > 20
+            ? '${firstUserMsg.substring(0, 20)}...'
+            : firstUserMsg;
+        saveBacklog(messages: backlogMessages, summary: summary);
+      } else {
+        // 💻 PC 模式：通过本地后端
+        debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
+
+        final response = await widget.dio.post(
+          "/chat",
+          data: {"prompt": text, "history": historyToSend},
+          options: Options(responseType: ResponseType.stream),
+        );
+
+        final stream = response.data.stream as Stream<Uint8List>;
+
+        await for (final chunk in stream.cast<List<int>>().transform(
+          utf8.decoder,
+        )) {
+          if (!mounted) break;
+          setState(() {
+            _messages[aiMsgIndex]["text"] =
+                (_messages[aiMsgIndex]["text"] as String) + chunk;
+          });
+          _scrollToBottom();
+        }
       }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _messages[aiMsgIndex]["text"] = "AI响应失败，请稍后重试。($e)";
       });
@@ -641,6 +741,12 @@ class _ScorePageState extends State<ScorePage> {
   final List<Map<String, TextEditingController>> _scoreItems = [];
 
   int _selectedFuncIndex = 0;
+  // 查询复选框状态
+  bool _searchById = true;
+  bool _searchByName = false;
+  // 删除预览
+  StudentData? _deletePreview;
+  bool _isQueryingDelete = false;
 
   void _addScoreItem() {
     setState(() {
@@ -659,32 +765,147 @@ class _ScorePageState extends State<ScorePage> {
     });
   }
 
+  /// 跳转到成绩详情页
+  void _goToScoreResult(String name, String? id, Map<String, dynamic> scores) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            ScoreResultPage(userName: name, studentId: id, scores: scores),
+      ),
+    );
+  }
+
+  /// 展示学生列表让用户选择（居中弹窗）
+  Future<void> _showStudentPicker(List<StudentData> students) async {
+    if (!mounted) return;
+    final selected = await showDialog<StudentData>(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => AlertDialog(
+        title: const Text("选择学生"),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: students.length,
+            itemBuilder: (context, index) {
+              final s = students[index];
+              return ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  child: Text(
+                    s.name.isNotEmpty ? s.name[0] : '?',
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+                title: Text(s.name),
+                subtitle: Text(
+                  "学号: ${s.studentId}  ·  科目: ${s.scores.length}门",
+                ),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.pop(ctx, s),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text("取消"),
+          ),
+        ],
+      ),
+    );
+    if (selected != null && mounted) {
+      _goToScoreResult(selected.name, selected.studentId, selected.scores);
+    }
+  }
+
   Future<void> queryData() async {
     try {
-      if (idController.text.isEmpty && nameController.text.isEmpty) {
-        throw "请输入学生ID或姓名进行查询";
+      // 仅获取已勾选项的输入内容
+      final rawId = _searchById ? idController.text.trim() : '';
+      final rawName = _searchByName ? nameController.text.trim() : '';
+      final hasId = _searchById && rawId.isNotEmpty;
+      final hasName = _searchByName && rawName.isNotEmpty;
+
+      // 检查：勾选了但没输入
+      if (_searchById && !hasId) {
+        throw "请输入学号";
+      }
+      if (_searchByName && !hasName) {
+        throw "请输入姓名";
       }
 
-      final dioInstance = widget.dio;
-      Response res = await dioInstance.get(
-        "/query",
-        queryParameters: {"id": idController.text, "name": nameController.text},
-      );
+      // 两个都未勾选 → 显示全部
+      if (!_searchById && !_searchByName) {
+        if (Platform.isAndroid) {
+          final allStudents = await LocalScoreService.listAllStudents();
+          if (!mounted) return;
+          if (allStudents.isEmpty) {
+            throw "暂无学生数据";
+          }
+          await _showStudentPicker(allStudents);
+          return;
+        } else {
+          throw "请勾选查找方式并输入内容";
+        }
+      }
 
-      if (!mounted) return;
-
-      if (res.data != null && res.data is Map) {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => ScoreResultPage(
-              userName: res.data["name"]?.toString() ?? "未知",
-              scores: Map<String, dynamic>.from(res.data["scores"] ?? {}),
-            ),
-          ),
-        );
+      if (Platform.isAndroid) {
+        // 📱 Android：本地文件查询
+        if (_searchById && _searchByName) {
+          // 严格模式
+          final student = await LocalScoreService.queryStudent(id: rawId);
+          if (!mounted) return;
+          if (student != null && student.name.contains(rawName)) {
+            _goToScoreResult(student.name, student.studentId, student.scores);
+          } else {
+            throw "未找到学号「$rawId」且姓名包含「$rawName」的学生";
+          }
+        } else if (_searchById) {
+          final student = await LocalScoreService.queryStudent(id: rawId);
+          if (!mounted) return;
+          if (student != null) {
+            _goToScoreResult(student.name, student.studentId, student.scores);
+          } else {
+            throw "未找到学号为「$rawId」的学生";
+          }
+        } else {
+          final matches = await LocalScoreService.queryStudentsByName(rawName);
+          if (!mounted) return;
+          if (matches.isEmpty) {
+            throw "未找到姓名包含「$rawName」的学生";
+          } else if (matches.length == 1) {
+            _goToScoreResult(
+              matches[0].name,
+              matches[0].studentId,
+              matches[0].scores,
+            );
+          } else {
+            await _showStudentPicker(matches);
+          }
+        }
       } else {
-        throw "服务器返回数据格式不正确";
+        // 💻 PC：后端查询（仅传已勾选的参数）
+        final params = <String, dynamic>{};
+        if (hasId) params['id'] = rawId;
+        if (hasName) params['name'] = rawName;
+        final response = await widget.dio.get(
+          '/query',
+          queryParameters: params,
+        );
+        if (!mounted) return;
+        if (response.data is Map && response.data['error'] == null) {
+          _goToScoreResult(
+            response.data['name']?.toString() ?? '未知',
+            hasId ? rawId : null,
+            Map<String, dynamic>.from(response.data['scores'] ?? {}),
+          );
+        } else {
+          throw response.data['error']?.toString() ?? '未找到该学生';
+        }
       }
     } catch (e) {
       String errorMsg = "查询失败";
@@ -697,10 +918,11 @@ class _ScorePageState extends State<ScorePage> {
       } else {
         errorMsg = e.toString();
       }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(errorMsg)));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(errorMsg)));
+      }
     }
   }
 
@@ -718,14 +940,34 @@ class _ScorePageState extends State<ScorePage> {
       if (idController.text.isEmpty || nameController.text.isEmpty) {
         throw "学生ID和姓名不能为空";
       }
+      if (scoreList.isEmpty) {
+        throw "请至少添加一条成绩";
+      }
 
-      final data = {
-        "id": idController.text,
-        "name": nameController.text,
-        "scores": scoreList,
-      };
+      // 合并 scores
+      final scoresMap = <String, dynamic>{};
+      for (final entry in scoreList) {
+        scoresMap.addAll(entry);
+      }
 
-      await widget.dio.post("/add", data: data);
+      if (Platform.isAndroid) {
+        // 📱 Android：本地文件添加
+        await LocalScoreService.addScore(
+          studentId: idController.text,
+          name: nameController.text,
+          scores: scoresMap,
+        );
+      } else {
+        // 💻 PC：后端添加
+        await widget.dio.post(
+          "/add",
+          data: {
+            "id": idController.text,
+            "name": nameController.text,
+            "scores": scoreList,
+          },
+        );
+      }
 
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -742,17 +984,79 @@ class _ScorePageState extends State<ScorePage> {
         _scoreItems.clear();
       });
     } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text("提交失败: $e")));
     }
   }
 
-  Future<void> _deleteData() async {
-    if (idController.text.isEmpty && nameController.text.isEmpty) {
+  /// 查询待删除学生预览
+  Future<void> _previewDelete() async {
+    final rawId = idController.text.trim();
+    final rawName = nameController.text.trim();
+    if (rawId.isEmpty && rawName.isEmpty) {
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(const SnackBar(content: Text("请输入学生ID或姓名以进行删除")));
+      ).showSnackBar(const SnackBar(content: Text("请输入学生ID或姓名")));
+      return;
+    }
+
+    setState(() {
+      _isQueryingDelete = true;
+      _deletePreview = null;
+    });
+
+    try {
+      if (Platform.isAndroid) {
+        StudentData? student;
+        if (rawId.isNotEmpty) {
+          student = await LocalScoreService.queryStudent(id: rawId);
+        } else {
+          final matches = await LocalScoreService.queryStudentsByName(rawName);
+          student = matches.isNotEmpty ? matches[0] : null;
+        }
+        if (!mounted) return;
+        if (student != null) {
+          setState(() => _deletePreview = student);
+        } else {
+          throw "未找到该学生";
+        }
+      } else {
+        // PC 端
+        final params = <String, dynamic>{};
+        if (rawId.isNotEmpty) params['id'] = rawId;
+        if (rawName.isNotEmpty) params['name'] = rawName;
+        final res = await widget.dio.get('/query', queryParameters: params);
+        if (!mounted) return;
+        if (res.data is Map && res.data['error'] == null) {
+          setState(() {
+            _deletePreview = StudentData(
+              studentId: rawId,
+              name: res.data['name']?.toString() ?? '',
+              scores: Map<String, dynamic>.from(res.data['scores'] ?? {}),
+            );
+          });
+        } else {
+          throw "未找到该学生";
+        }
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _deletePreview = null);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("查询失败: $e")));
+    } finally {
+      if (mounted) setState(() => _isQueryingDelete = false);
+    }
+  }
+
+  Future<void> _deleteData() async {
+    if (_deletePreview == null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("请先查询学生信息")));
       return;
     }
 
@@ -760,7 +1064,9 @@ class _ScorePageState extends State<ScorePage> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text("确认删除"),
-        content: const Text("确定要删除该学生的信息吗？此操作不可撤销。"),
+        content: Text(
+          "确定要删除「${_deletePreview!.name}」(学号: ${_deletePreview!.studentId}) 的信息吗？\n此操作不可撤销。",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -778,16 +1084,31 @@ class _ScorePageState extends State<ScorePage> {
     if (confirm != true) return;
 
     try {
-      await widget.dio.delete(
-        "/delete",
-        queryParameters: {"id": idController.text, "name": nameController.text},
-      );
+      if (Platform.isAndroid) {
+        await LocalScoreService.deleteStudent(
+          id: _deletePreview!.studentId.isNotEmpty
+              ? _deletePreview!.studentId
+              : null,
+          name: _deletePreview!.name.isNotEmpty ? _deletePreview!.name : null,
+        );
+      } else {
+        await widget.dio.delete(
+          "/delete",
+          queryParameters: {
+            "id": _deletePreview!.studentId,
+            "name": _deletePreview!.name,
+          },
+        );
+      }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("学生信息已成功删除")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("已删除「${_deletePreview!.name}」的信息")),
+      );
 
+      setState(() {
+        _deletePreview = null;
+      });
       idController.clear();
       nameController.clear();
     } catch (e) {
@@ -815,32 +1136,87 @@ class _ScorePageState extends State<ScorePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // 复选框：选择查找方式
+          Card(
+            child: Column(
+              children: [
+                CheckboxListTile(
+                  title: const Text("按学号查找"),
+                  subtitle: const Text("精确匹配学生ID"),
+                  value: _searchById,
+                  onChanged: (v) => setState(() => _searchById = v ?? true),
+                  secondary: const Icon(Icons.badge),
+                  controlAffinity: ListTileControlAffinity.trailing,
+                ),
+                Divider(height: 1, indent: 16, endIndent: 16),
+                CheckboxListTile(
+                  title: const Text("按姓名查找"),
+                  subtitle: const Text("模糊匹配学生姓名"),
+                  value: _searchByName,
+                  onChanged: (v) => setState(() => _searchByName = v ?? false),
+                  secondary: const Icon(Icons.person),
+                  controlAffinity: ListTileControlAffinity.trailing,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          // ID 输入框
           TextField(
             controller: idController,
-            decoration: const InputDecoration(
-              labelText: '输入学生id',
-              hintText: '在这里输入学生id...',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.search),
+            enabled: _searchById,
+            decoration: InputDecoration(
+              labelText: '学生ID',
+              hintText: _searchById ? '输入学生ID...' : '未勾选按学号查找',
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(
+                Icons.badge,
+                color: _searchById ? null : Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 姓名输入框
+          TextField(
+            controller: nameController,
+            enabled: _searchByName,
+            decoration: InputDecoration(
+              labelText: '学生姓名',
+              hintText: _searchByName ? '输入学生姓名...' : '未勾选按姓名查找',
+              border: const OutlineInputBorder(),
+              prefixIcon: Icon(
+                Icons.person_outline,
+                color: _searchByName ? null : Colors.grey,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          // 提示文字
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _searchById && _searchByName
+                  ? '🔍 严格模式：同时匹配学号和姓名'
+                  : _searchById
+                  ? '🔍 按学号精确查找'
+                  : _searchByName
+                  ? '🔍 按姓名模糊查找'
+                  : '👥 两项都不勾选将显示全部学生',
+              style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
           const SizedBox(height: 20),
-          TextField(
-            controller: nameController,
-            decoration: const InputDecoration(
-              labelText: '输入学生姓名',
-              hintText: '在这里输入学生姓名...',
-              border: OutlineInputBorder(),
-              prefixIcon: Icon(Icons.person_outline),
-            ),
-          ),
-          const SizedBox(height: 30),
           SizedBox(
             width: double.infinity,
             height: 50,
-            child: ElevatedButton(
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.search),
               onPressed: queryData,
-              child: const Text('查询成绩'),
+              label: const Text('查询成绩'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Theme.of(context).primaryColor,
+                foregroundColor: Colors.white,
+              ),
             ),
           ),
         ],
@@ -973,7 +1349,10 @@ class _ScorePageState extends State<ScorePage> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          const Text("请提供学生ID或姓名进行信息注销：", style: TextStyle(color: Colors.grey)),
+          const Text(
+            "请提供学生ID或姓名，先查询再删除：",
+            style: TextStyle(color: Colors.grey),
+          ),
           const SizedBox(height: 24),
           TextField(
             controller: idController,
@@ -992,19 +1371,137 @@ class _ScorePageState extends State<ScorePage> {
               prefixIcon: Icon(Icons.person_outline),
             ),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 16),
+          // 先查询按钮
           SizedBox(
             width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: _deleteData,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.red.shade400,
-                foregroundColor: Colors.white,
-              ),
-              child: const Text('确认删除'),
+            height: 44,
+            child: OutlinedButton.icon(
+              icon: _isQueryingDelete
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.search),
+              onPressed: _isQueryingDelete ? null : _previewDelete,
+              label: const Text('查询学生信息'),
             ),
           ),
+          // 查询结果预览
+          if (_deletePreview != null) ...[
+            const SizedBox(height: 16),
+            Card(
+              color: Colors.orange.shade50,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.orange.shade200),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        CircleAvatar(
+                          radius: 20,
+                          backgroundColor: Colors.orange,
+                          child: Text(
+                            _deletePreview!.name.isNotEmpty
+                                ? _deletePreview!.name[0]
+                                : '?',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _deletePreview!.name,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                "学号: ${_deletePreview!.studentId}",
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey.shade700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    // 可点击展开查看课程详情
+                    InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => ScoreResultPage(
+                              userName: _deletePreview!.name,
+                              studentId: _deletePreview!.studentId,
+                              scores: _deletePreview!.scores,
+                            ),
+                          ),
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          Text(
+                            "共 ${_deletePreview!.scores.length} 门课程",
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.visibility,
+                            size: 16,
+                            color: Colors.orange.shade700,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            "点击查看详情",
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Colors.orange.shade700,
+                              decoration: TextDecoration.underline,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.delete_forever, size: 20),
+                        onPressed: _deleteData,
+                        label: const Text(
+                          '确认删除这名学生',
+                          style: TextStyle(fontSize: 15),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red.shade400,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -1062,12 +1559,20 @@ class SchedulePage extends StatefulWidget {
   final bool isActive;
   final String studentID;
   final String studentName;
+  final bool useDirectApi;
+  final String? directBaseUrl;
+  final String? directApiKey;
+  final String? directModel;
   const SchedulePage({
     super.key,
     required this.dio,
     this.isActive = false,
     required this.studentID,
     required this.studentName,
+    this.useDirectApi = false,
+    this.directBaseUrl,
+    this.directApiKey,
+    this.directModel,
   });
 
   @override
@@ -1132,28 +1637,35 @@ class _SchedulePageState extends State<SchedulePage> {
 
     setState(() => _isFetchingSubjects = true);
     try {
-      final response = await widget.dio.get(
-        "/query",
-        queryParameters: {"id": widget.studentID, "name": widget.studentName},
-      );
-
-      if (response.data != null && response.data["scores"] != null) {
-        Map<String, dynamic> scores = Map<String, dynamic>.from(
-          response.data["scores"],
+      List<String> subjects = [];
+      if (Platform.isAndroid) {
+        // 📱 Android：从本地文件读取
+        final student = await LocalScoreService.queryStudent(
+          id: widget.studentID.isNotEmpty ? widget.studentID : null,
+          name: widget.studentName.isNotEmpty ? widget.studentName : null,
         );
-        setState(() {
-          _availableSubjects = scores.keys.toList();
-        });
-      }
-    } on DioException catch (e) {
-      if (e.response?.statusCode == 404) {
-        // 404 说明系统里还没这个学生，这是正常情况，清空科目列表即可
-        setState(() => _availableSubjects = []);
+        if (student != null) {
+          subjects = student.scores.keys.toList();
+        }
       } else {
-        debugPrint("获取科目列表失败: $e");
+        // 💻 PC：后端查询
+        final response = await widget.dio.get(
+          "/query",
+          queryParameters: {"id": widget.studentID, "name": widget.studentName},
+        );
+        if (response.data != null && response.data["scores"] != null) {
+          Map<String, dynamic> scores = Map<String, dynamic>.from(
+            response.data["scores"],
+          );
+          subjects = scores.keys.toList();
+        }
       }
+      setState(() {
+        _availableSubjects = subjects;
+      });
     } catch (e) {
-      debugPrint("获取科目列表发生非 Dio 错误: $e");
+      debugPrint("获取科目列表失败: $e");
+      setState(() => _availableSubjects = []);
     } finally {
       if (mounted) setState(() => _isFetchingSubjects = false);
     }
@@ -1181,42 +1693,63 @@ class _SchedulePageState extends State<SchedulePage> {
 
     setState(() {
       _isLoading = true;
-      // 移除 _itinerary = ""; 防止切页面时内容闪卸
     });
 
     try {
-      final dioInstance = widget.dio;
       final dateStr =
           "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
 
-      final response = await dioInstance.post(
-        "/schedule",
-        data: {
-          "tasks": "", // 传空任务表示仅尝试读取存档
-          "date": dateStr,
-        },
-      );
-
-      if (!mounted) return;
-
-      final fetchedItinerary = response.data["itinerary"]?.toString() ?? "无内容";
-
-      setState(() {
-        _itinerary = fetchedItinerary;
-        // 如果后端返回了 summary 摘要，也在这里顺便还原
-        if (response.data["summary"] != null) {
-          _summary = response.data["summary"].toString();
-        } else if (fetchedItinerary.contains("今日行程规划建议")) {
-          _summary = "已加载历史日程规划";
+      if (Platform.isAndroid) {
+        // 📱 Android：从本地文件读取日程存档
+        final saved = await LocalScheduleService.loadItinerary(dateStr);
+        if (!mounted) return;
+        if (saved != null) {
+          final lines = saved.split('\n').where((l) => l.isNotEmpty).toList();
+          final summary = lines.isNotEmpty
+              ? lines[0].replaceAll('#', '').trim()
+              : '已加载历史日程规划';
+          setState(() {
+            _itinerary = saved;
+            _summary = summary;
+          });
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
         } else {
-          _summary = "";
+          setState(() {
+            _itinerary = "";
+            _summary =
+                dateStr ==
+                    "${DateTime.now().year}-${DateTime.now().month}-${DateTime.now().day}"
+                ? "暂无存档，请输入任务后生成"
+                : "$dateStr 暂无存档";
+          });
         }
-      });
-
-      if (response.data["from_cache"] == true) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
+      } else {
+        // 💻 PC：后端读取
+        final dioInstance = widget.dio;
+        final response = await dioInstance.post(
+          "/schedule",
+          data: {"tasks": "", "date": dateStr},
+        );
+        if (!mounted) return;
+        final fetchedItinerary =
+            response.data["itinerary"]?.toString() ?? "无内容";
+        setState(() {
+          _itinerary = fetchedItinerary;
+          if (response.data["summary"] != null) {
+            _summary = response.data["summary"].toString();
+          } else if (fetchedItinerary.contains("今日行程规划建议")) {
+            _summary = "已加载历史日程规划";
+          } else {
+            _summary = "";
+          }
+        });
+        if (response.data["from_cache"] == true) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
+        }
       }
     } catch (e) {
       debugPrint("读取存档失败: $e");
@@ -1252,59 +1785,102 @@ class _SchedulePageState extends State<SchedulePage> {
     });
 
     try {
-      final dioInstance = widget.dio;
       final dateStr =
           "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
 
-      // 构建发送给后端的数据，包含学习弱项信息
-      Map<String, dynamic> requestData = {
-        "tasks": _taskController.text,
-        "city": "440100",
-        "date": dateStr,
-      };
+      if (Platform.isAndroid) {
+        // 📱 Android：通过直连 AI API 生成日程
+        final baseUrl = widget.directBaseUrl;
+        final apiKey = widget.directApiKey;
+        final model = widget.directModel;
 
-      // 如果启用了学习建议功能，添加相关数据
-      if (_includeStudyAdvice && _selectedWeakSubjects.isNotEmpty) {
-        requestData["study_weaknesses"] = _selectedWeakSubjects.toList();
-      }
+        if (baseUrl == null || apiKey == null || model == null) {
+          throw 'AI 配置不完整，请先在设置中配置 AI 服务';
+        }
 
-      final response = await dioInstance.post(
-        "/schedule",
-        data: requestData,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 90), // 专门为日程生成增加超时时间
-        ),
-      );
+        final result = await LocalScheduleService.generateSchedule(
+          tasks: _taskController.text,
+          date: dateStr,
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: model,
+          studyWeaknesses: _includeStudyAdvice
+              ? _selectedWeakSubjects.toList()
+              : null,
+        );
 
-      if (response.data != null && response.data is Map) {
+        if (!mounted) return;
+        final itinerary = result['detail'] ?? '';
+        final summary = result['summary'] ?? '已生成日程详细规划';
+
         setState(() {
-          _itinerary = response.data["itinerary"]?.toString() ?? "";
-          _summary = response.data["summary"]?.toString() ?? "已生成日程详细规划";
+          _itinerary = itinerary;
+          _summary = summary;
         });
 
-        // 跳转至详情页面
-        if (_itinerary.isNotEmpty && mounted) {
+        // 保存到本地
+        if (itinerary.isNotEmpty) {
+          await LocalScheduleService.saveItinerary(dateStr, itinerary);
+        }
+
+        if (itinerary.isNotEmpty && mounted) {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => ScheduleDetailPage(content: _itinerary),
+              builder: (context) => ScheduleDetailPage(content: itinerary),
             ),
           );
         }
       } else {
-        setState(() {
-          _summary = "服务器返回数据格式错误";
-        });
+        // 💻 PC：后端生成
+        final dioInstance = widget.dio;
+        Map<String, dynamic> requestData = {
+          "tasks": _taskController.text,
+          "city": "440100",
+          "date": dateStr,
+        };
+        if (_includeStudyAdvice && _selectedWeakSubjects.isNotEmpty) {
+          requestData["study_weaknesses"] = _selectedWeakSubjects.toList();
+        }
+
+        final response = await dioInstance.post(
+          "/schedule",
+          data: requestData,
+          options: Options(receiveTimeout: const Duration(seconds: 90)),
+        );
+
+        if (response.data != null && response.data is Map) {
+          setState(() {
+            _itinerary = response.data["itinerary"]?.toString() ?? "";
+            _summary = response.data["summary"]?.toString() ?? "已生成日程详细规划";
+          });
+          if (_itinerary.isNotEmpty && mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ScheduleDetailPage(content: _itinerary),
+              ),
+            );
+          }
+        } else {
+          setState(() {
+            _summary = "服务器返回数据格式错误";
+          });
+        }
       }
     } catch (e) {
       debugPrint("生成日程出错: $e");
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("生成失败: $e")));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("生成失败: $e")));
+      }
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -1313,7 +1889,7 @@ class _SchedulePageState extends State<SchedulePage> {
     final dateDisplay =
         "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
 
-    return Padding(
+    return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

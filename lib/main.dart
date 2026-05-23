@@ -21,6 +21,10 @@ void main() async {
 
   Dio? dio;
   bool showWelcome = false;
+  bool useDirectApi = false;
+  String? directBaseUrl;
+  String? directApiKey;
+  String? directModel;
 
   if (!await configFile.exists()) {
     // 不存在 → 生成模板 → 跳转欢迎页
@@ -50,6 +54,24 @@ void main() async {
     if (enabledAi == null || enabledAi.apiKey.isEmpty) {
       debugPrint('>>> AI 配置为空，跳转欢迎页');
       showWelcome = true;
+    } else if (Platform.isAndroid) {
+      // 📱 Android 手机端：不启动本地后端，直连 AI API
+      debugPrint('>>> Android 模式：使用直连 AI API');
+      useDirectApi = true;
+      directBaseUrl = enabledAi.baseUrl;
+      directApiKey = enabledAi.apiKey;
+      directModel = enabledAi.model;
+
+      // 创建一个指向 AI API 的 Dio（用于成绩查询等需要后端的功能，暂时不可用）
+      dio = Dio(
+        BaseOptions(
+          baseUrl: enabledAi.baseUrl,
+          headers: {"Authorization": "Bearer ${enabledAi.apiKey}"},
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 120),
+        ),
+      );
+      debugPrint('>>> 已进入 Android 直连模式');
     } else {
       // 启动后端并等待就绪
       debugPrint('>>> 正在启动后端 (端口: $port)...');
@@ -80,13 +102,34 @@ void main() async {
     }
   }
 
-  runApp(MyApp(initialDio: dio, showWelcome: showWelcome));
+  runApp(
+    MyApp(
+      initialDio: dio,
+      showWelcome: showWelcome,
+      useDirectApi: useDirectApi,
+      directBaseUrl: directBaseUrl,
+      directApiKey: directApiKey,
+      directModel: directModel,
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
   final Dio? initialDio;
   final bool showWelcome;
-  const MyApp({super.key, this.initialDio, required this.showWelcome});
+  final bool useDirectApi;
+  final String? directBaseUrl;
+  final String? directApiKey;
+  final String? directModel;
+  const MyApp({
+    super.key,
+    this.initialDio,
+    required this.showWelcome,
+    this.useDirectApi = false,
+    this.directBaseUrl,
+    this.directApiKey,
+    this.directModel,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -106,7 +149,13 @@ class MyApp extends StatelessWidget {
       locale: const Locale('zh', 'CN'),
       home: showWelcome || initialDio == null
           ? const WelcomePage()
-          : MyHomePage(dio: initialDio!),
+          : MyHomePage(
+              dio: initialDio!,
+              useDirectApi: useDirectApi,
+              directBaseUrl: directBaseUrl,
+              directApiKey: directApiKey,
+              directModel: directModel,
+            ),
     );
   }
 }

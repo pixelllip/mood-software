@@ -1,6 +1,8 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
+import 'package:file_picker/file_picker.dart';
 import 'home_page.dart';
 import 'backend_utils.dart';
 
@@ -21,6 +23,9 @@ class _WelcomePageState extends State<WelcomePage> {
   // 第二步：基础密钥
   final TextEditingController _gaodeKeyController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
+
+  // 用户选择的输出目录（文件夹选择器）
+  String? _pickedBasePath;
 
   // AI 配置列表
   List<_AiConfigFormItem> _aiConfigs = [];
@@ -56,6 +61,11 @@ class _WelcomePageState extends State<WelcomePage> {
         _setTextIfNotEmpty(_nameController, config['STUDENT_NAME']);
         _setTextIfNotEmpty(_gaodeKeyController, config['Gaode_API_Key']);
         _setTextIfNotEmpty(_portController, config['SERVER_PORT']?.toString());
+        // 恢复用户之前选择的 BASE_PATH
+        final savedPath = config['BASE_PATH']?.toString();
+        if (savedPath != null && savedPath.isNotEmpty) {
+          _pickedBasePath = savedPath;
+        }
 
         // 加载 AI 配置
         final aiConfigs = getAiConfigs(config);
@@ -231,26 +241,52 @@ class _WelcomePageState extends State<WelcomePage> {
     final port = int.tryParse(portStr) ?? 8080;
 
     await _saveToEnv();
-    await startBackend(port);
 
     final enabledConfig = _aiConfigs[_selectedAiIndex];
-    final baseUrl = "http://127.0.0.1:$port";
-    final dio = Dio(
-      BaseOptions(
-        baseUrl: baseUrl,
-        headers: {
-          "Authorization":
-              "Bearer ${enabledConfig.apiKeyController.text.trim()}",
-        },
-        connectTimeout: const Duration(seconds: 30),
-        receiveTimeout: const Duration(seconds: 60),
-      ),
-    );
+    final apiKey = enabledConfig.apiKeyController.text.trim();
 
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (context) => MyHomePage(dio: dio)),
-    );
+    if (Platform.isAndroid) {
+      // 📱 Android 手机端：不启动本地后端，直连 AI API
+      debugPrint(">>> 欢迎页 - Android 模式：跳过后端，使用直连 AI API");
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: enabledConfig.baseUrlController.text.trim(),
+          headers: {"Authorization": "Bearer $apiKey"},
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 120),
+        ),
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => MyHomePage(
+            dio: dio,
+            useDirectApi: true,
+            directBaseUrl: enabledConfig.baseUrlController.text.trim(),
+            directApiKey: apiKey,
+            directModel: _selectedModel,
+          ),
+        ),
+      );
+    } else {
+      await startBackend(port);
+
+      final baseUrl = "http://127.0.0.1:$port";
+      final dio = Dio(
+        BaseOptions(
+          baseUrl: baseUrl,
+          headers: {"Authorization": "Bearer $apiKey"},
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 60),
+        ),
+      );
+
+      if (!mounted) return;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (context) => MyHomePage(dio: dio)),
+      );
+    }
   }
 
   Future<void> _saveToEnv() async {
@@ -271,7 +307,7 @@ class _WelcomePageState extends State<WelcomePage> {
       }
 
       final config = {
-        "BASE_PATH": projectDir.path,
+        "BASE_PATH": _pickedBasePath ?? projectDir.path,
         "STUDENT_ID": _idController.text.trim(),
         "STUDENT_NAME": _nameController.text.trim(),
         "Gaode_API_Key": _gaodeKeyController.text.trim(),
@@ -517,7 +553,7 @@ class _WelcomePageState extends State<WelcomePage> {
                 height: 150,
                 child: ListView.separated(
                   itemCount: _filteredModels.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final model = _filteredModels[i];
                     final isModelSelected = _selectedModel == model;
@@ -574,9 +610,119 @@ class _WelcomePageState extends State<WelcomePage> {
           ),
         ),
         const SizedBox(height: 16),
+        _buildFolderPickerSection(),
+        const SizedBox(height: 16),
         const Text("点击\"继续\"保存配置并开始使用", style: TextStyle(color: Colors.grey)),
       ],
     );
+  }
+
+  /// 文件夹选择器 + 权限申请
+  Widget _buildFolderPickerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          "数据存储路径",
+          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        OutlinedButton.icon(
+          icon: const Icon(Icons.folder_open, size: 20),
+          label: Text(
+            _pickedBasePath != null ? "已选择: $_pickedBasePath" : "选择输出文件夹（可选）",
+            overflow: TextOverflow.ellipsis,
+          ),
+          onPressed: _onPickFolder,
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            minimumSize: const Size(double.infinity, 0),
+            alignment: Alignment.centerLeft,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _pickedBasePath != null ? "数据将输出到所选文件夹" : "不选择则使用软件自有目录",
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ],
+    );
+  }
+
+  /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
+  Future<void> _onPickFolder() async {
+    try {
+      final result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: "选择数据存储文件夹",
+      );
+      if (result == null || !mounted) return;
+
+      if (Platform.isAndroid) {
+        // Android：检查 MANAGE_EXTERNAL_STORAGE 权限
+        final hasPermission = await checkStoragePermission();
+        if (!hasPermission) {
+          // 未授权 → 弹出提示并跳转系统设置
+          final goToSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("需要存储权限"),
+              content: const Text(
+                "要在所选文件夹读写文件，需要授予「所有文件访问权限」。\n\n"
+                "点击「去授权」后将跳转到系统设置，请在「特殊权限」→「所有文件访问权限」中开启。",
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text("不授权，使用自有目录"),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("去授权"),
+                ),
+              ],
+            ),
+          );
+
+          if (goToSettings == true) {
+            await requestStoragePermission();
+            // 跳转后用户可能授权也可能不授权，短暂延迟后检查
+            await Future.delayed(const Duration(seconds: 1));
+            final granted = await checkStoragePermission();
+            if (!granted && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
+              );
+              return;
+            }
+          } else {
+            // 用户拒绝授权
+            if (mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
+            }
+            return;
+          }
+        }
+      }
+
+      // 权限通过或无权限要求 → 使用所选路径
+      setState(() {
+        _pickedBasePath = result;
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+      }
+    } catch (e) {
+      debugPrint("选择文件夹失败: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+      }
+    }
   }
 
   Widget _buildKeyField(

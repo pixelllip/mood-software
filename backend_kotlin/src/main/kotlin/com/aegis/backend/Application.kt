@@ -445,10 +445,25 @@ fun Application.module() {
                 ?: emptyList()
 
             val sortedDates = if (sortOrder == "asc") allDates.sorted() else allDates.sortedDescending()
+            val isSingleDay = startDate == endDate
 
             val results = mutableMapOf<String, Any>()
             for (dateStr in sortedDates) {
-                val dayResults = agent.backlog.loadBacklog(dateStr, startTime = startTime, endTime = endTime)
+                // 时间过滤逻辑：
+                //   - 起始日期：只限制 ≥ startTime
+                //   - 结束日期：只限制 ≤ endTime
+                //   - 中间日期：不限制时间
+                val dayStartTime = when {
+                    isSingleDay -> startTime
+                    dateStr == startDate -> startTime
+                    else -> null
+                }
+                val dayEndTime = when {
+                    isSingleDay -> endTime
+                    dateStr == endDate -> endTime
+                    else -> null
+                }
+                val dayResults = agent.backlog.loadBacklog(dateStr, startTime = dayStartTime, endTime = dayEndTime)
                 results.putAll(dayResults)
             }
             println(">>> 加载历史记录范围: $startDate ~ $endDate (sort=$sortOrder), ${results.size} 条")

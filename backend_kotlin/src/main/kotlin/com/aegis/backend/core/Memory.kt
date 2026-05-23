@@ -167,14 +167,22 @@ data class AiConfigItem(
 )
 
 /**
- * 环境配置，唯一从 Documents/Academic Aegis/config.json 读取
+ * 环境配置，唯一从 Academic Aegis/config.json 读取
  * 不存在则自动生成模板
  */
 object EnvConfig {
     // ========== 唯一路径 ==========
     private val configDir: String by lazy {
-        val userHome = System.getProperty("user.home")
-        "$userHome/Documents/Academic Aegis"
+        // Android 上 user.home 是内部存储路径，使用共享存储路径
+        val osName = System.getProperty("os.name")?.lowercase() ?: ""
+        if (osName.contains("android") || osName.contains("linux") &&
+            System.getenv("ANDROID_ROOT") != null
+        ) {
+            "/storage/emulated/0/Academic Aegis"
+        } else {
+            val userHome = System.getProperty("user.home")
+            "$userHome/Documents/Academic Aegis"
+        }
     }
 
     private val configFile: File by lazy {

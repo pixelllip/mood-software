@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:ai_agent/backend_utils.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -86,8 +88,9 @@ class _SettingsPageState extends State<SettingsPage> {
               )
               .toList();
           _selectedAiIndex = aiConfigs.indexWhere((c) => c.enabled);
-          if (_selectedAiIndex < 0 && _aiConfigs.isNotEmpty)
+          if (_selectedAiIndex < 0 && _aiConfigs.isNotEmpty) {
             _selectedAiIndex = 0;
+          }
           if (_selectedAiIndex >= 0 && _selectedAiIndex < _aiConfigs.length) {
             _selectedModel = aiConfigs[_selectedAiIndex].model;
           }
@@ -211,6 +214,75 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
+  Future<void> _onPickFolder() async {
+    try {
+      final result = await FilePicker.platform.getDirectoryPath(
+        dialogTitle: "选择数据存储文件夹",
+      );
+      if (result == null || !mounted) return;
+
+      if (Platform.isAndroid) {
+        final hasPermission = await checkStoragePermission();
+        if (!hasPermission) {
+          final goToSettings = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text("需要存储权限"),
+              content: const Text(
+                "要在所选文件夹读写文件，需要授予「所有文件访问权限」。\n\n"
+                "点击「去授权」后将跳转到系统设置，请在权限中开启。",
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text("不授权，使用自有目录"),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text("去授权"),
+                ),
+              ],
+            ),
+          );
+
+          if (goToSettings == true) {
+            await requestStoragePermission();
+            await Future.delayed(const Duration(seconds: 1));
+            final granted = await checkStoragePermission();
+            if (!granted && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
+              );
+              return;
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(
+                context,
+              ).showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
+            }
+            return;
+          }
+        }
+      }
+
+      _basePathController.text = result;
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+      }
+    } catch (e) {
+      debugPrint("选择文件夹失败: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+      }
+    }
+  }
+
   Future<void> _saveSettings() async {
     try {
       final directory = await getProjectDirectory();
@@ -242,16 +314,32 @@ class _SettingsPageState extends State<SettingsPage> {
       await saveConfigFile(config);
 
       // 同步更新 Dio
-      final newPort = _portController.text.trim();
-      if (newPort.isNotEmpty) {
-        widget.dio.options.baseUrl = "http://127.0.0.1:$newPort";
-      }
-      // 用已启用配置的 API Key 更新 Authorization
-      if (_selectedAiIndex >= 0 && _selectedAiIndex < _aiConfigs.length) {
-        final newKey = _aiConfigs[_selectedAiIndex].apiKeyController.text
-            .trim();
-        if (newKey.isNotEmpty) {
-          widget.dio.options.headers["Authorization"] = "Bearer $newKey";
+      if (Platform.isAndroid) {
+        // 📱 Android 端：Dio 指向 AI API
+        if (_selectedAiIndex >= 0 && _selectedAiIndex < _aiConfigs.length) {
+          final item = _aiConfigs[_selectedAiIndex];
+          final baseUrl = item.baseUrlController.text.trim();
+          final apiKey = item.apiKeyController.text.trim();
+          if (baseUrl.isNotEmpty) {
+            widget.dio.options.baseUrl = baseUrl;
+          }
+          if (apiKey.isNotEmpty) {
+            widget.dio.options.headers["Authorization"] = "Bearer $apiKey";
+          }
+        }
+      } else {
+        // 💻 PC 端：Dio 指向本地后端
+        final newPort = _portController.text.trim();
+        if (newPort.isNotEmpty) {
+          widget.dio.options.baseUrl = "http://127.0.0.1:$newPort";
+        }
+        // 用已启用配置的 API Key 更新 Authorization
+        if (_selectedAiIndex >= 0 && _selectedAiIndex < _aiConfigs.length) {
+          final newKey = _aiConfigs[_selectedAiIndex].apiKeyController.text
+              .trim();
+          if (newKey.isNotEmpty) {
+            widget.dio.options.headers["Authorization"] = "Bearer $newKey";
+          }
         }
       }
 
@@ -270,8 +358,9 @@ class _SettingsPageState extends State<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading)
+    if (_isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -306,11 +395,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildTextField(_portController, "通信端口", hint: "默认 8080"),
             const SizedBox(height: 24),
             _buildSectionTitle("数据存储路径"),
-            _buildTextField(
-              _basePathController,
-              "BASE_PATH（数据根目录）",
-              hint: "例如: C:/Users/.../Academic Aegis",
-            ),
+            _buildFolderPickerSection(),
             const SizedBox(height: 12),
             Text(
               "📁 配置文件：$_configFilePath\n"
@@ -529,6 +614,38 @@ class _SettingsPageState extends State<SettingsPage> {
           color: Colors.deepPurple,
         ),
       ),
+    );
+  }
+
+  Widget _buildFolderPickerSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            icon: const Icon(Icons.folder_open, size: 20),
+            label: Text(
+              _basePathController.text.isNotEmpty
+                  ? "已选择: ${_basePathController.text}"
+                  : "选择输出文件夹",
+              overflow: TextOverflow.ellipsis,
+            ),
+            onPressed: _isEditing ? _onPickFolder : null,
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              alignment: Alignment.centerLeft,
+            ),
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _basePathController.text.isNotEmpty
+              ? "数据将输出到所选文件夹"
+              : "不选择则使用软件自有目录（推荐）",
+          style: const TextStyle(fontSize: 12, color: Colors.grey),
+        ),
+      ],
     );
   }
 

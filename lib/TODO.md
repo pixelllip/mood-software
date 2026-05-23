@@ -28,3 +28,12 @@ config.json 新增 AI_CONFIGS 数组，支持多个 AI 配置
 - 返回 status、info、infocode、province、city、adcode、rectangle
 - 已注册到 tool_list 并在 use_tool 中添加了调度分支
 
+✅ 手机端功能已完善
+- 历史对话记录查询和保存：使用本地 backlog 文件读写（`saveBacklog`/`loadBacklogForDate`），无需后端
+- 我的成绩查询与录入：使用本地 `Score_info/students.json` 文件（`LocalScoreService`），增删改查完整
+- 日程安排：使用本地 `Schedule/{date}.md` 文件（`LocalScheduleService`），日程生成通过直连 AI API
+
+完善查询成绩功能逻辑：
+我的成绩的查询界面可以做复选框，默认勾选id，如果只勾选姓名或id，则按勾选项查找；如果两个都勾选则按严格模式查找。
+检查后端是否符合要求。
+删除界面先查询符合条件的学生，展开详情，再问用户是否删除这名学生的信息

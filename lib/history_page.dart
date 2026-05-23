@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:ai_agent/backend_utils.dart';
 
 class HistoryPage extends StatefulWidget {
   final Dio dio;
@@ -29,6 +31,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   Map<String, dynamic> _historyList = {};
   bool _isLoading = false;
+  List<String> _sortedKeys = [];
 
   @override
   void initState() {
@@ -41,7 +44,7 @@ class _HistoryPageState extends State<HistoryPage> {
     return "${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}";
   }
 
-  /// 根据当前模式与排序发起请求
+  /// 根据当前模式与排序发起请求（Android 直接读文件，PC 通过后端）
   Future<void> _fetchHistory() async {
     setState(() => _isLoading = true);
 
@@ -50,52 +53,99 @@ class _HistoryPageState extends State<HistoryPage> {
     final endTimeStr = _timeFilterEnabled ? _formatTime(_endTime) : null;
 
     try {
-      if (_rangeMode) {
-        // 时间段模式
-        final startStr = _formatDate(_rangeStart);
-        final endStr = _formatDate(_rangeEnd);
-        final params = <String, dynamic>{
-          'start_date': startStr,
-          'end_date': endStr,
-          'sort': sortParam,
-        };
-        if (startTimeStr != null) params['start_time'] = startTimeStr;
-        if (endTimeStr != null) params['end_time'] = endTimeStr;
-        final response = await widget.dio.get(
-          '/history/range',
-          queryParameters: params,
-        );
-        setState(() {
-          if (response.data is Map && (response.data as Map).isNotEmpty) {
-            _historyList = Map<String, dynamic>.from(response.data);
-          } else {
-            _historyList = {};
+      if (Platform.isAndroid) {
+        // 📱 Android：从本地 backlog 文件读取
+        final Map<String, dynamic> rawData;
+        if (_rangeMode) {
+          final rangeData = await loadBacklogForRange(
+            startDate: _formatDate(_rangeStart),
+            endDate: _formatDate(_rangeEnd),
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            sort: sortParam,
+          );
+          // 展平：{ date: { filename: data } } -> { "date/filename": data }
+          rawData = {};
+          for (final dateEntry in rangeData.entries) {
+            for (final fileEntry in dateEntry.value.entries) {
+              rawData['${dateEntry.key}/${fileEntry.key}'] = fileEntry.value;
+            }
           }
+        } else {
+          final dateData = await loadBacklogForDate(
+            date: _formatDate(_selectedDate),
+            startTime: startTimeStr,
+            endTime: endTimeStr,
+            sort: sortParam,
+          );
+          rawData = Map<String, dynamic>.from(dateData);
+        }
+        setState(() {
+          _historyList = rawData;
+          _updateSortedKeys();
         });
       } else {
-        // 单日模式
-        final dateStr = _formatDate(_selectedDate);
-        final params = <String, dynamic>{'date': dateStr};
-        if (startTimeStr != null) params['start_time'] = startTimeStr;
-        if (endTimeStr != null) params['end_time'] = endTimeStr;
-        final response = await widget.dio.get(
-          '/history/list',
-          queryParameters: params,
-        );
-        setState(() {
-          if (response.data is Map && (response.data as Map).isNotEmpty) {
-            _historyList = Map<String, dynamic>.from(response.data);
-          } else {
-            _historyList = {};
-          }
-        });
+        // 💻 PC：通过后端 API
+        if (_rangeMode) {
+          final startStr = _formatDate(_rangeStart);
+          final endStr = _formatDate(_rangeEnd);
+          final params = <String, dynamic>{
+            'start_date': startStr,
+            'end_date': endStr,
+            'sort': sortParam,
+          };
+          if (startTimeStr != null) params['start_time'] = startTimeStr;
+          if (endTimeStr != null) params['end_time'] = endTimeStr;
+          final response = await widget.dio.get(
+            '/history/range',
+            queryParameters: params,
+          );
+          setState(() {
+            if (response.data is Map && (response.data as Map).isNotEmpty) {
+              _historyList = Map<String, dynamic>.from(response.data);
+            } else {
+              _historyList = {};
+            }
+            _updateSortedKeys();
+          });
+        } else {
+          final dateStr = _formatDate(_selectedDate);
+          final params = <String, dynamic>{'date': dateStr};
+          if (startTimeStr != null) params['start_time'] = startTimeStr;
+          if (endTimeStr != null) params['end_time'] = endTimeStr;
+          final response = await widget.dio.get(
+            '/history/list',
+            queryParameters: params,
+          );
+          setState(() {
+            if (response.data is Map && (response.data as Map).isNotEmpty) {
+              _historyList = Map<String, dynamic>.from(response.data);
+            } else {
+              _historyList = {};
+            }
+            _updateSortedKeys();
+          });
+        }
       }
     } catch (e) {
-      setState(() => _historyList = {});
+      setState(() {
+        _historyList = {};
+        _updateSortedKeys();
+      });
       debugPrint("获取历史记录失败: $e");
     } finally {
       setState(() => _isLoading = false);
     }
+  }
+
+  /// 根据 _sortAscending 重新排序 _historyList 的键
+  void _updateSortedKeys() {
+    _sortedKeys = _historyList.keys.toList()
+      ..sort((a, b) {
+        final nameA = a.contains('/') ? a.split('/').last : a;
+        final nameB = b.contains('/') ? b.split('/').last : b;
+        return _sortAscending ? nameA.compareTo(nameB) : nameB.compareTo(nameA);
+      });
   }
 
   String _formatDate(DateTime date) {
@@ -180,9 +230,10 @@ class _HistoryPageState extends State<HistoryPage> {
       ),
       body: Column(
         children: [
-          // 模式选择与日期选择栏
+          // 模式选择与日期选择栏（带阴影区分结果区）
           Material(
-            elevation: 2,
+            elevation: 4,
+            shadowColor: Colors.black26,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: Column(
@@ -230,89 +281,196 @@ class _HistoryPageState extends State<HistoryPage> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // 日期选择行
+                  // 日期选择 + 时间选择（对齐各自日期下方）
                   if (_rangeMode)
-                    // 时间段模式：显示起止日期
-                    Row(
+                    // 时间段模式：日期上下对齐时间
+                    Column(
                       children: [
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _pickDate(context, true),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: "开始日期",
-                                prefixIcon: Icon(Icons.play_arrow, size: 18),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                              ),
-                              child: Text(
-                                _formatDate(_rangeStart),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            "～",
-                            style: TextStyle(fontSize: 18, color: Colors.grey),
-                          ),
-                        ),
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _pickDate(context, false),
-                            child: InputDecorator(
-                              decoration: const InputDecoration(
-                                labelText: "结束日期",
-                                prefixIcon: Icon(Icons.fast_forward, size: 18),
-                                isDense: true,
-                                contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                              ),
-                              child: Text(
-                                _formatDate(_rangeEnd),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => _pickDate(context, true),
+                                child: InputDecorator(
+                                  decoration: const InputDecoration(
+                                    labelText: "开始日期",
+                                    prefixIcon: Icon(
+                                      Icons.play_arrow,
+                                      size: 18,
+                                    ),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _formatDate(_rangeStart),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8),
+                              child: Text(
+                                "～",
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.grey,
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: () => _pickDate(context, false),
+                                child: InputDecorator(
+                                  decoration: const InputDecoration(
+                                    labelText: "结束日期",
+                                    prefixIcon: Icon(
+                                      Icons.fast_forward,
+                                      size: 18,
+                                    ),
+                                    isDense: true,
+                                    contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _formatDate(_rangeEnd),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
+                        // 时间筛选：对齐日期正下方
+                        if (_timeFilterEnabled)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 6),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => _pickTime(context, true),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: Colors.deepPurple.shade200,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.schedule,
+                                            size: 14,
+                                            color: Colors.deepPurple.shade400,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _formatTime(_startTime),
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.deepPurple.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(horizontal: 8),
+                                  child: Text(
+                                    "~",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => _pickTime(context, false),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        border: Border.all(
+                                          color: Colors.deepPurple.shade200,
+                                        ),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            Icons.schedule,
+                                            size: 14,
+                                            color: Colors.deepPurple.shade400,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          Text(
+                                            _formatTime(_endTime),
+                                            style: TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.bold,
+                                              color: Colors.deepPurple.shade700,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     )
                   else
                     // 单日模式
-                    ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(
-                        Icons.calendar_month,
-                        color: Colors.deepPurple,
-                      ),
-                      title: const Text(
-                        "查看指定日期记录",
-                        style: TextStyle(fontSize: 14),
-                      ),
-                      subtitle: Text(
-                        _formatDate(_selectedDate),
-                        style: const TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      trailing: const Icon(Icons.arrow_drop_down),
-                      onTap: () => _pickSingleDate(context),
+                    Column(
+                      children: [
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.calendar_month,
+                            color: Colors.deepPurple,
+                          ),
+                          title: const Text(
+                            "查看指定日期记录",
+                            style: TextStyle(fontSize: 14),
+                          ),
+                          subtitle: Text(
+                            _formatDate(_selectedDate),
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          trailing: const Icon(Icons.arrow_drop_down),
+                          onTap: () => _pickSingleDate(context),
+                        ),
+                      ],
                     ),
-                  // 时间范围筛选
-                  const SizedBox(height: 4),
+                  // 时间筛选开关行（始终显示在底部）
+                  const Divider(height: 12),
                   Row(
                     children: [
-                      // 启用/禁用时间筛选开关
                       SizedBox(
                         height: 28,
                         child: Switch(
@@ -343,86 +501,11 @@ class _HistoryPageState extends State<HistoryPage> {
                               : FontWeight.normal,
                         ),
                       ),
-                      if (_timeFilterEnabled) ...[
-                        const SizedBox(width: 8),
-                        InkWell(
-                          onTap: () => _pickTime(context, true),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: Colors.deepPurple.shade200,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.schedule,
-                                  size: 14,
-                                  color: Colors.deepPurple.shade400,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _formatTime(_startTime),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.deepPurple.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(
-                            "~",
-                            style: TextStyle(fontSize: 14, color: Colors.grey),
-                          ),
-                        ),
-                        InkWell(
-                          onTap: () => _pickTime(context, false),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              border: Border.all(
-                                color: Colors.deepPurple.shade200,
-                              ),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.schedule,
-                                  size: 14,
-                                  color: Colors.deepPurple.shade400,
-                                ),
-                                const SizedBox(width: 4),
-                                Text(
-                                  _formatTime(_endTime),
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.deepPurple.shade700,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ],
                     ],
                   ),
+                  // 时间段模式下在时间选择下方留间距
+                  if (_rangeMode && _timeFilterEnabled)
+                    const SizedBox(height: 4),
                 ],
               ),
             ),
@@ -453,9 +536,12 @@ class _HistoryPageState extends State<HistoryPage> {
                   )
                 : ListView.builder(
                     padding: const EdgeInsets.all(16),
-                    itemCount: _historyList.length,
+                    itemCount: _sortedKeys.length,
                     itemBuilder: (context, index) {
-                      String fileKey = _historyList.keys.elementAt(index);
+                      if (index >= _sortedKeys.length) {
+                        return const SizedBox.shrink();
+                      }
+                      String fileKey = _sortedKeys[index];
                       dynamic data = _historyList[fileKey];
 
                       // 兼容新旧格式
