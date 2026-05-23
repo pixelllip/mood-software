@@ -1,127 +1,61 @@
 import 'dart:io';
+import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/home_page.dart';
 import 'package:ai_agent/welcome.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/widget_previews.dart';
 import 'package:dio/dio.dart';
-import 'package:dio/io.dart'; // 💡 新增：用于配置底层 HttpClient
-import 'package:path_provider/path_provider.dart';
+import 'package:dio/io.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
-
-// Windows 启动后端核心逻辑
-Future<void> startBackendOnDesktop() async {
-  if (Platform.isWindows) {
-    try {
-      // 获取当前可执行文件路径或从当前目录推断
-      // 假设 backend 文件夹在项目根目录下
-      String rootDir = Directory.current.path;
-      String appPyPath = File('${rootDir}/backend/app.py').path;
-
-      if (await File(appPyPath).exists()) {
-        debugPrint("正在 Windows 后台启动后端: $appPyPath");
-        // 使用 Process.start 以后台方式启动，不阻塞前端
-        await Process.start('python', [appPyPath], runInShell: true);
-      } else {
-        debugPrint("未找到后端文件: $appPyPath");
-      }
-    } catch (e) {
-      debugPrint("启动 Windows 后端失败: $e");
-    }
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // 💡 Windows 专属：前端拉起后端
-  await startBackendOnDesktop();
+  final projectDir = await getProjectDirectory();
+  if (!await projectDir.exists()) {
+    await projectDir.create(recursive: true);
+  }
+
+  final configFile = File('${projectDir.path}/config.json');
+  debugPrint('>>> 项目目录: ${projectDir.path}');
+  debugPrint('>>> 配置文件: ${configFile.path}');
 
   Dio? dio;
-  try {
-    final directory = await getApplicationDocumentsDirectory();
-    final appEnvFile = File('${directory.path}/.env');
-    File? fileToRead;
+  bool showWelcome = false;
 
-    // 💡 移动端不再依赖打包资产 lib/.env；从应用数据目录读取或生成模板
-    if (Platform.isAndroid || Platform.isIOS) {
-      fileToRead = appEnvFile;
+  if (!await configFile.exists()) {
+    // 不存在 → 生成模板 → 跳转欢迎页
+    debugPrint('>>> config.json 不存在，正在生成模板...');
+    final defaultConfig = {
+      "BASE_PATH": projectDir.path,
+      "STUDENT_ID": "",
+      "STUDENT_NAME": "",
+      "OPENAI_API_KEY": "",
+      "Gaode_API_Key": "",
+      "DASHSCOPE_API_KEY": "",
+      "SERVER_PORT": 8080,
+    };
+    await saveConfigFile(defaultConfig);
+    debugPrint('>>> 模板已生成: ${configFile.path}');
+    showWelcome = true;
+  } else {
+    // 存在 → 读取配置
+    final config = await loadConfigFile();
+    final port = (config['SERVER_PORT'] ?? config['PORT'] ?? 8080) as int;
+    final openaiKey = (config['OPENAI_API_KEY'] ?? '') as String;
+
+    debugPrint('>>> 读取到端口: $port');
+    debugPrint('>>> OPENAI_API_KEY: ${openaiKey.isNotEmpty ? "已配置" : "为空"}');
+
+    if (openaiKey.isEmpty) {
+      debugPrint('>>> API Key 为空，跳转欢迎页');
+      showWelcome = true;
     } else {
-      // Windows 桌面端逻辑：优先读项目源码下的 lib/.env
-      final devFile = File('lib/.env');
-      if (await devFile.exists()) {
-        fileToRead = devFile;
-      } else if (await appEnvFile.exists()) {
-        fileToRead = appEnvFile;
-      }
-    }
+      // 启动后端并等待就绪
+      debugPrint('>>> 正在启动后端 (端口: $port)...');
+      bool backendReady = await startBackend(port);
 
-    if (fileToRead == null || !await fileToRead.exists()) {
-      const defaultEnv = '''# 自动生成的空白配置文件
-BASE_PATH=""
-
-# 个人信息
-STUDENT_ID=
-STUDENT_NAME=
-
-# OPENAI / 千问 API 密钥
-OPENAI_API_KEY=
-
-# 高德地图 API
-Gaode_API_Key=
-
-# 阿里云 DashScope API
-DASHSCOPE_API_KEY=
-
-# 后端服务器地址
-BASE_URL=http://127.0.0.1:8080
-
-# 输出文件目录
-OUTPUT_DIR=""
-''';
-      await appEnvFile.writeAsString(defaultEnv);
-      debugPrint("未找到 .env，已生成空模板: ${appEnvFile.path}");
-      fileToRead = appEnvFile;
-    }
-
-    if (await fileToRead.exists()) {
-      final content = await fileToRead.readAsString();
-      final lines = content.split('\n');
-      Map<String, String> config = {};
-
-      for (var line in lines) {
-        final trimmedLine = line.trim();
-        if (trimmedLine.contains('=') && !trimmedLine.startsWith('#')) {
-          final parts = trimmedLine.split('=');
-          if (parts.length >= 2) {
-            final key = parts[0].trim();
-            final value = parts
-                .sublist(1)
-                .join('=')
-                .trim()
-                .replaceAll('"', '')
-                .replaceAll("'", "");
-            config[key] = value;
-          }
-        }
-      }
-
-      // 核心校验
-      final openaiKey = config['OPENAI_API_KEY'];
-      final explicitBaseUrl = config['BASE_URL']?.trim();
-      final useDesktopDefault =
-          Platform.isWindows || Platform.isLinux || Platform.isMacOS;
-      String? baseUrl;
-
-      if (explicitBaseUrl != null && explicitBaseUrl.isNotEmpty) {
-        baseUrl = explicitBaseUrl;
-      } else if (useDesktopDefault) {
-        baseUrl = "http://127.0.0.1:8080";
-      }
-
-      if (openaiKey != null &&
-          openaiKey.isNotEmpty &&
-          baseUrl != null &&
-          baseUrl.isNotEmpty) {
+      if (backendReady) {
+        final baseUrl = "http://127.0.0.1:$port";
         dio = Dio(
           BaseOptions(
             baseUrl: baseUrl,
@@ -131,26 +65,27 @@ OUTPUT_DIR=""
           ),
         );
 
-        // 💡 强制禁用代理，直接连接后端
+        // 强制直连
         (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
           final client = HttpClient();
-          client.findProxy = (uri) => "DIRECT"; // 关键：强制直连
+          client.findProxy = (uri) => "DIRECT";
           return client;
         };
-
-        debugPrint("Dio 初始化成功并禁用代理: $baseUrl");
+        debugPrint('>>> 后端已就绪，进入主页面');
+      } else {
+        debugPrint('>>> 后端启动失败，跳转欢迎页');
+        showWelcome = true;
       }
     }
-  } catch (e) {
-    debugPrint("启动加载配置失败: $e");
   }
 
-  runApp(MyApp(initialDio: dio));
+  runApp(MyApp(initialDio: dio, showWelcome: showWelcome));
 }
 
 class MyApp extends StatelessWidget {
   final Dio? initialDio;
-  const MyApp({super.key, this.initialDio});
+  final bool showWelcome;
+  const MyApp({super.key, this.initialDio, required this.showWelcome});
 
   @override
   Widget build(BuildContext context) {
@@ -168,15 +103,9 @@ class MyApp extends StatelessWidget {
       ],
       supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
       locale: const Locale('zh', 'CN'),
-      // 只有在 initialDio 不为空时才进入主页，否则进入欢迎页
-      home: initialDio != null
-          ? MyHomePage(dio: initialDio!)
-          : const WelcomePage(),
+      home: showWelcome || initialDio == null
+          ? const WelcomePage()
+          : MyHomePage(dio: initialDio!),
     );
   }
-}
-
-@Preview()
-Widget appPreview() {
-  return const MyApp();
 }

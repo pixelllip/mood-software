@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/score_result_page.dart';
 import 'package:ai_agent/settings_page.dart';
 import 'package:ai_agent/history_page.dart';
@@ -21,17 +22,14 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   int selectedIndex = 0;
-  final GlobalKey<_HomeContentState> _homeContentKey = GlobalKey<_HomeContentState>();
+  final GlobalKey<_HomeContentState> _homeContentKey =
+      GlobalKey<_HomeContentState>();
 
   String userID = "未知学号";
   String userName = "未知用户";
   String? _currentChatSummary;
 
-  final List<String> pageTitles = [
-    "AI聊天",
-    "我的成绩",
-    "日程安排",
-  ];
+  final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排"];
 
   @override
   void initState() {
@@ -41,31 +39,14 @@ class _MyHomePageState extends State<MyHomePage> {
 
   Future<void> _loadUserInfo() async {
     try {
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/.env');
-      if (await file.exists()) {
-        final content = await file.readAsString();
-        final lines = content.split('\n');
-        String? newID;
-        String? newName;
-        for (var line in lines) {
-          final trimmedLine = line.trim();
-          if (trimmedLine.contains('=') && !trimmedLine.startsWith('#')) {
-            final parts = trimmedLine.split('=');
-            if (parts.length >= 2) {
-              final key = parts[0].trim();
-              final value = parts.sublist(1).join('=').trim().replaceAll('"', '').replaceAll("'", "");
-              if (key == 'STUDENT_ID') newID = value;
-              if (key == 'STUDENT_NAME') newName = value;
-            }
-          }
-        }
-        if (mounted) {
-          setState(() {
-            if (newID != null && newID.isNotEmpty) userID = newID;
-            if (newName != null && newName.isNotEmpty) userName = newName;
-          });
-        }
+      final config = await loadConfigFile();
+      if (mounted && config.isNotEmpty) {
+        setState(() {
+          final id = config['STUDENT_ID']?.toString() ?? '';
+          final name = config['STUDENT_NAME']?.toString() ?? '';
+          if (id.isNotEmpty) userID = id;
+          if (name.isNotEmpty) userName = name;
+        });
       }
     } catch (e) {
       debugPrint("主页：加载用户信息失败: $e");
@@ -88,17 +69,22 @@ class _MyHomePageState extends State<MyHomePage> {
           padding: EdgeInsets.zero,
           children: [
             UserAccountsDrawerHeader(
-              accountName: Text(userName, style: const TextStyle(fontWeight: FontWeight.bold)),
+              accountName: Text(
+                userName,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
               accountEmail: Text(userID),
               currentAccountPicture: const CircleAvatar(
                 child: Icon(Icons.person),
               ),
-              decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor,
-              ),
+              decoration: BoxDecoration(color: Theme.of(context).primaryColor),
             ),
             ListTile(
-              leading: Icon(selectedIndex == 0 ? Icons.chat_bubble : Icons.chat_bubble_outline),
+              leading: Icon(
+                selectedIndex == 0
+                    ? Icons.chat_bubble
+                    : Icons.chat_bubble_outline,
+              ),
               title: const Text("AI聊天"),
               selected: selectedIndex == 0,
               onTap: () {
@@ -107,7 +93,9 @@ class _MyHomePageState extends State<MyHomePage> {
               },
             ),
             ListTile(
-              leading: Icon(selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined),
+              leading: Icon(
+                selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined,
+              ),
               title: const Text("我的成绩"),
               selected: selectedIndex == 1,
               onTap: () {
@@ -116,7 +104,11 @@ class _MyHomePageState extends State<MyHomePage> {
               },
             ),
             ListTile(
-              leading: Icon(selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined),
+              leading: Icon(
+                selectedIndex == 2
+                    ? Icons.event_note
+                    : Icons.event_note_outlined,
+              ),
               title: const Text("日程安排"),
               selected: selectedIndex == 2,
               onTap: () {
@@ -132,7 +124,13 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.pop(context); // Close drawer
                 await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio, userName: userName, userID: userID)),
+                  MaterialPageRoute(
+                    builder: (context) => SettingsPage(
+                      dio: widget.dio,
+                      userName: userName,
+                      userID: userID,
+                    ),
+                  ),
                 );
                 _loadUserInfo(); // 刷新用户信息
               },
@@ -154,11 +152,15 @@ class _MyHomePageState extends State<MyHomePage> {
           label: const Text("AI聊天"),
         ),
         NavigationRailDestination(
-          icon: Icon(selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined),
+          icon: Icon(
+            selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined,
+          ),
           label: const Text("我的成绩"),
         ),
         NavigationRailDestination(
-          icon: Icon(selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined),
+          icon: Icon(
+            selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined,
+          ),
           label: const Text("日程安排"),
         ),
       ],
@@ -171,9 +173,11 @@ class _MyHomePageState extends State<MyHomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(selectedIndex == 0 && _currentChatSummary != null 
-            ? _currentChatSummary! 
-            : pageTitles[selectedIndex]),
+        title: Text(
+          selectedIndex == 0 && _currentChatSummary != null
+              ? _currentChatSummary!
+              : pageTitles[selectedIndex],
+        ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
           if (selectedIndex == 0) ...[
@@ -194,7 +198,9 @@ class _MyHomePageState extends State<MyHomePage> {
               onPressed: () async {
                 final result = await Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (context) => HistoryPage(dio: widget.dio)),
+                  MaterialPageRoute(
+                    builder: (context) => HistoryPage(dio: widget.dio),
+                  ),
                 );
                 if (result != null && result is Map) {
                   setState(() {
@@ -205,13 +211,19 @@ class _MyHomePageState extends State<MyHomePage> {
               },
             ),
           ],
-          const SizedBox(width:10),
+          const SizedBox(width: 10),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(builder: (context) => SettingsPage(dio: widget.dio, userName: userName, userID: userID)),
+                MaterialPageRoute(
+                  builder: (context) => SettingsPage(
+                    dio: widget.dio,
+                    userName: userName,
+                    userID: userID,
+                  ),
+                ),
               );
               _loadUserInfo(); // 刷新用户信息
             },
@@ -219,13 +231,15 @@ class _MyHomePageState extends State<MyHomePage> {
         ],
       ),
       drawer: isMobile ? buildDrawer() : null,
-      drawerEdgeDragWidth: isMobile ? MediaQuery.of(context).size.width * 0.15 : null,
+      drawerEdgeDragWidth: isMobile
+          ? MediaQuery.of(context).size.width * 0.15
+          : null,
       body: isMobile
           ? IndexedStack(
               index: selectedIndex,
               children: [
                 HomeContent(
-                  key: _homeContentKey, 
+                  key: _homeContentKey,
                   dio: widget.dio,
                   onSummaryUpdate: (summary) {
                     setState(() {
@@ -234,7 +248,12 @@ class _MyHomePageState extends State<MyHomePage> {
                   },
                 ),
                 ScorePage(dio: widget.dio),
-                SchedulePage(dio: widget.dio, isActive: selectedIndex == 2, studentID: userID, studentName: userName),
+                SchedulePage(
+                  dio: widget.dio,
+                  isActive: selectedIndex == 2,
+                  studentID: userID,
+                  studentName: userName,
+                ),
               ],
             )
           : Row(
@@ -246,7 +265,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     index: selectedIndex,
                     children: [
                       HomeContent(
-                        key: _homeContentKey, 
+                        key: _homeContentKey,
                         dio: widget.dio,
                         onSummaryUpdate: (summary) {
                           setState(() {
@@ -255,7 +274,12 @@ class _MyHomePageState extends State<MyHomePage> {
                         },
                       ),
                       ScorePage(dio: widget.dio),
-                      SchedulePage(dio: widget.dio, isActive: selectedIndex == 2, studentID: userID, studentName: userName),
+                      SchedulePage(
+                        dio: widget.dio,
+                        isActive: selectedIndex == 2,
+                        studentID: userID,
+                        studentName: userName,
+                      ),
                     ],
                   ),
                 ),
@@ -276,7 +300,7 @@ class HomeContent extends StatefulWidget {
 
 class _HomeContentState extends State<HomeContent> {
   final List<Map<String, dynamic>> _messages = [
-    {"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false}
+    {"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false},
   ];
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
@@ -290,7 +314,7 @@ class _HomeContentState extends State<HomeContent> {
 
   void loadHistory(dynamic historyData) {
     List<dynamic> historyMessages = [];
-    
+
     if (historyData is Map && historyData.containsKey('messages')) {
       historyMessages = historyData['messages'] as List<dynamic>;
     } else if (historyData is List) {
@@ -305,9 +329,9 @@ class _HomeContentState extends State<HomeContent> {
           _messages.add({"text": msg['content'] ?? "", "isUser": isUser});
         }
       }
-      // 如果历史对话最后一条是 AI 的消息，或者历史为空，保留默认的欢迎消息
-      if (_messages.isEmpty || _messages.last["isUser"] == false) {
-        _messages.insert(0, {"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
+      // 加载历史对话时，不再插入欢迎语，完整还原历史
+      if (_messages.isEmpty) {
+        _messages.add({"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
       }
     });
     _scrollToBottom();
@@ -350,31 +374,31 @@ class _HomeContentState extends State<HomeContent> {
 
     try {
       debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
-      
+
       // 构建历史上下文发送给后端，以便后端重置时间并生成摘要
       List<Map<String, dynamic>> historyToSend = [];
       for (int i = 0; i < _messages.length - 1; i++) {
         final msg = _messages[i];
         historyToSend.add({
           "role": msg["isUser"] ? "user" : "assistant",
-          "content": msg["text"]
+          "content": msg["text"],
         });
       }
 
       final response = await widget.dio.post(
         "/chat",
-        data: {
-          "prompt": text,
-          "history": historyToSend,
-        },
+        data: {"prompt": text, "history": historyToSend},
         options: Options(responseType: ResponseType.stream),
       );
 
       final stream = response.data.stream as Stream<Uint8List>;
-      
-      await for (final chunk in stream.cast<List<int>>().transform(utf8.decoder)) {
+
+      await for (final chunk in stream.cast<List<int>>().transform(
+        utf8.decoder,
+      )) {
         setState(() {
-          _messages[aiMsgIndex]["text"] = (_messages[aiMsgIndex]["text"] as String) + chunk;
+          _messages[aiMsgIndex]["text"] =
+              (_messages[aiMsgIndex]["text"] as String) + chunk;
         });
         _scrollToBottom();
       }
@@ -399,15 +423,22 @@ class _HomeContentState extends State<HomeContent> {
               final msg = _messages[index];
               final isUser = msg["isUser"] as bool;
               return Align(
-                alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
+                alignment: isUser
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.of(context).size.width * 0.7,
                   ),
                   decoration: BoxDecoration(
-                    color: isUser ? Theme.of(context).primaryColor : Colors.grey.shade200,
+                    color: isUser
+                        ? Theme.of(context).primaryColor
+                        : Colors.grey.shade200,
                     borderRadius: BorderRadius.only(
                       topLeft: const Radius.circular(16),
                       topRight: const Radius.circular(16),
@@ -517,10 +548,7 @@ class _ScorePageState extends State<ScorePage> {
       final dioInstance = widget.dio;
       Response res = await dioInstance.get(
         "/query",
-        queryParameters: {
-          "id": idController.text,
-          "name": nameController.text,
-        },
+        queryParameters: {"id": idController.text, "name": nameController.text},
       );
 
       if (!mounted) return;
@@ -549,10 +577,10 @@ class _ScorePageState extends State<ScorePage> {
       } else {
         errorMsg = e.toString();
       }
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMsg)),
-      );
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMsg)));
     }
   }
 
@@ -580,9 +608,9 @@ class _ScorePageState extends State<ScorePage> {
       await widget.dio.post("/add", data: data);
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("信息已成功添加到系统")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("信息已成功添加到系统")));
 
       idController.clear();
       nameController.clear();
@@ -594,17 +622,17 @@ class _ScorePageState extends State<ScorePage> {
         _scoreItems.clear();
       });
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("提交失败: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("提交失败: $e")));
     }
   }
 
   Future<void> _deleteData() async {
     if (idController.text.isEmpty && nameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("请输入学生ID或姓名以进行删除")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("请输入学生ID或姓名以进行删除")));
       return;
     }
 
@@ -632,24 +660,21 @@ class _ScorePageState extends State<ScorePage> {
     try {
       await widget.dio.delete(
         "/delete",
-        queryParameters: {
-          "id": idController.text,
-          "name": nameController.text,
-        },
+        queryParameters: {"id": idController.text, "name": nameController.text},
       );
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("学生信息已成功删除")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("学生信息已成功删除")));
 
       idController.clear();
       nameController.clear();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("删除失败: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("删除失败: $e")));
     }
   }
 
@@ -663,8 +688,6 @@ class _ScorePageState extends State<ScorePage> {
     }
     super.dispose();
   }
-
-
 
   Widget _buildSearchUI() {
     return SingleChildScrollView(
@@ -714,7 +737,10 @@ class _ScorePageState extends State<ScorePage> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text("基本信息", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              "基本信息",
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
             TextField(
               controller: idController,
@@ -737,7 +763,10 @@ class _ScorePageState extends State<ScorePage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("科目成绩", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Text(
+                  "科目成绩",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
                 TextButton.icon(
                   onPressed: _addScoreItem,
                   icon: const Icon(Icons.add),
@@ -749,7 +778,10 @@ class _ScorePageState extends State<ScorePage> {
             if (_scoreItems.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 20),
-                child: Text("暂无成绩项，请点击上方“添加项”开始录入", style: TextStyle(color: Colors.grey)),
+                child: Text(
+                  "暂无成绩项，请点击上方“添加项”开始录入",
+                  style: TextStyle(color: Colors.grey),
+                ),
               ),
             ...List.generate(_scoreItems.length, (index) {
               return Padding(
@@ -781,7 +813,10 @@ class _ScorePageState extends State<ScorePage> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                      icon: const Icon(
+                        Icons.remove_circle_outline,
+                        color: Colors.red,
+                      ),
                       onPressed: () => _removeScoreItem(index),
                     ),
                   ],
@@ -813,7 +848,10 @@ class _ScorePageState extends State<ScorePage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text("删除信息", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+            "删除信息",
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 12),
           const Text("请提供学生ID或姓名进行信息注销：", style: TextStyle(color: Colors.grey)),
           const SizedBox(height: 24),
@@ -864,7 +902,7 @@ class _ScorePageState extends State<ScorePage> {
               color: Theme.of(context).colorScheme.surface,
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 4,
                   offset: const Offset(0, 2),
                 ),
@@ -881,29 +919,16 @@ class _ScorePageState extends State<ScorePage> {
               unselectedLabelColor: Colors.grey,
               indicatorWeight: 3,
               tabs: const [
-                Tab(
-                  icon: Icon(Icons.search),
-                  text: "查询",
-                ),
-                Tab(
-                  icon: Icon(Icons.add_circle_outline),
-                  text: "录入",
-                ),
-                Tab(
-                  icon: Icon(Icons.delete_outline),
-                  text: "删除",
-                ),
+                Tab(icon: Icon(Icons.search), text: "查询"),
+                Tab(icon: Icon(Icons.add_circle_outline), text: "录入"),
+                Tab(icon: Icon(Icons.delete_outline), text: "删除"),
               ],
             ),
           ),
           Expanded(
             child: IndexedStack(
               index: _selectedFuncIndex,
-              children: [
-                _buildSearchUI(),
-                _buildAddUI(),
-                _buildDeleteUI(),
-              ],
+              children: [_buildSearchUI(), _buildAddUI(), _buildDeleteUI()],
             ),
           ),
         ],
@@ -918,8 +943,8 @@ class SchedulePage extends StatefulWidget {
   final String studentID;
   final String studentName;
   const SchedulePage({
-    super.key, 
-    required this.dio, 
+    super.key,
+    required this.dio,
     this.isActive = false,
     required this.studentID,
     required this.studentName,
@@ -945,7 +970,8 @@ class _SchedulePageState extends State<SchedulePage> {
   @override
   void initState() {
     super.initState();
-    // 启动时不自动加载，等待页面激活或手动触发
+    // 页面初始化时自动加载学科列表（如果学号姓名已配置）
+    Future.microtask(() => _fetchUserSubjects());
   }
 
   @override
@@ -953,20 +979,21 @@ class _SchedulePageState extends State<SchedulePage> {
     super.didUpdateWidget(oldWidget);
 
     // 如果身份信息发生变化，重置并刷新学科列表和日程
-    if (widget.studentID != oldWidget.studentID || widget.studentName != oldWidget.studentName) {
+    if (widget.studentID != oldWidget.studentID ||
+        widget.studentName != oldWidget.studentName) {
       setState(() {
         _availableSubjects = [];
         _selectedWeakSubjects.clear();
         _itinerary = "";
         _summary = "";
       });
-      
+
       // 只有在当前页面是激活状态（被点击选中）时，身份变化才触发加载
       if (widget.isActive) {
         _fetchSavedSchedule();
         _fetchUserSubjects();
       }
-    } 
+    }
     // 或者：从其他页面切换到当前日程页面时触发加载
     else if (widget.isActive && !oldWidget.isActive) {
       _fetchSavedSchedule();
@@ -976,7 +1003,8 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Future<void> _fetchUserSubjects() async {
     // 如果是默认值，说明用户还没设置个人信息，直接跳过
-    if (widget.studentID == "未知学号" || widget.studentName == "未知用户" || 
+    if (widget.studentID == "未知学号" ||
+        widget.studentName == "未知用户" ||
         (widget.studentID.isEmpty && widget.studentName.isEmpty)) {
       return;
     }
@@ -986,14 +1014,13 @@ class _SchedulePageState extends State<SchedulePage> {
     try {
       final response = await widget.dio.get(
         "/query",
-        queryParameters: {
-          "id": widget.studentID,
-          "name": widget.studentName,
-        },
+        queryParameters: {"id": widget.studentID, "name": widget.studentName},
       );
-      
+
       if (response.data != null && response.data["scores"] != null) {
-        Map<String, dynamic> scores = Map<String, dynamic>.from(response.data["scores"]);
+        Map<String, dynamic> scores = Map<String, dynamic>.from(
+          response.data["scores"],
+        );
         setState(() {
           _availableSubjects = scores.keys.toList();
         });
@@ -1039,7 +1066,8 @@ class _SchedulePageState extends State<SchedulePage> {
 
     try {
       final dioInstance = widget.dio;
-      final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+      final dateStr =
+          "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
 
       final response = await dioInstance.post(
         "/schedule",
@@ -1066,16 +1094,16 @@ class _SchedulePageState extends State<SchedulePage> {
       });
 
       if (response.data["from_cache"] == true) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("成功加载 $dateStr 的本地存档")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
       }
     } catch (e) {
       debugPrint("读取存档失败: $e");
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("读取存档失败: $e")),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text("读取存档失败: $e")));
       }
     } finally {
       if (mounted) {
@@ -1088,12 +1116,13 @@ class _SchedulePageState extends State<SchedulePage> {
 
   Future<void> _generateSchedule() async {
     bool hasTasks = _taskController.text.trim().isNotEmpty;
-    bool hasStudyAdvice = _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
+    bool hasStudyAdvice =
+        _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
 
     if (!hasTasks && !hasStudyAdvice) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("请输入任务内容或选择弱势学科")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("请输入任务内容或选择弱势学科")));
       return;
     }
 
@@ -1104,20 +1133,21 @@ class _SchedulePageState extends State<SchedulePage> {
 
     try {
       final dioInstance = widget.dio;
-      final dateStr = "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
-      
+      final dateStr =
+          "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
+
       // 构建发送给后端的数据，包含学习弱项信息
       Map<String, dynamic> requestData = {
         "tasks": _taskController.text,
         "city": "440100",
         "date": dateStr,
       };
-      
+
       // 如果启用了学习建议功能，添加相关数据
       if (_includeStudyAdvice && _selectedWeakSubjects.isNotEmpty) {
         requestData["study_weaknesses"] = _selectedWeakSubjects.toList();
       }
-      
+
       final response = await dioInstance.post(
         "/schedule",
         data: requestData,
@@ -1125,18 +1155,20 @@ class _SchedulePageState extends State<SchedulePage> {
           receiveTimeout: const Duration(seconds: 90), // 专门为日程生成增加超时时间
         ),
       );
-      
+
       if (response.data != null && response.data is Map) {
         setState(() {
           _itinerary = response.data["itinerary"]?.toString() ?? "";
           _summary = response.data["summary"]?.toString() ?? "已生成日程详细规划";
         });
-        
+
         // 跳转至详情页面
         if (_itinerary.isNotEmpty && mounted) {
           Navigator.push(
             context,
-            MaterialPageRoute(builder: (context) => ScheduleDetailPage(content: _itinerary)),
+            MaterialPageRoute(
+              builder: (context) => ScheduleDetailPage(content: _itinerary),
+            ),
           );
         }
       } else {
@@ -1146,9 +1178,9 @@ class _SchedulePageState extends State<SchedulePage> {
       }
     } catch (e) {
       debugPrint("生成日程出错: $e");
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("生成失败: $e")),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("生成失败: $e")));
     } finally {
       setState(() {
         _isLoading = false;
@@ -1158,7 +1190,8 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
-    final dateDisplay = "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
+    final dateDisplay =
+        "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
 
     return Padding(
       padding: const EdgeInsets.all(16.0),
@@ -1193,15 +1226,15 @@ class _SchedulePageState extends State<SchedulePage> {
               border: OutlineInputBorder(),
             ),
           ),
-          
+
           // 学习弱项选择区域
           const SizedBox(height: 16),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.blueGrey.withOpacity(0.05),
+              color: Colors.blueGrey.withValues(alpha: 0.05),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueGrey.withOpacity(0.1)),
+              border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.1)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1236,21 +1269,27 @@ class _SchedulePageState extends State<SchedulePage> {
                     ),
                   ],
                 ),
-                
+
                 // 只有勾选了才显示学科选择
                 if (_includeStudyAdvice) ...[
                   const SizedBox(height: 12),
                   if (_isFetchingSubjects)
-                    const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                    const Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
                   else if (_availableSubjects.isEmpty)
-                    const Text("暂无录入的学科，请先在'我的成绩'中录入", 
-                      style: TextStyle(fontSize: 12, color: Colors.orange))
+                    const Text(
+                      "暂无录入的学科，请先在'我的成绩'中录入",
+                      style: TextStyle(fontSize: 12, color: Colors.orange),
+                    )
                   else
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
                       children: _availableSubjects.map((subject) {
-                        final isSelected = _selectedWeakSubjects.contains(subject);
+                        final isSelected = _selectedWeakSubjects.contains(
+                          subject,
+                        );
                         return FilterChip(
                           label: Text(subject),
                           selected: isSelected,
@@ -1297,9 +1336,9 @@ class _SchedulePageState extends State<SchedulePage> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: Colors.blue.withOpacity(0.05),
+                color: Colors.blue.withValues(alpha: 0.05),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.withOpacity(0.1)),
+                border: Border.all(color: Colors.blue.withValues(alpha: 0.1)),
               ),
               child: Row(
                 children: [
@@ -1309,9 +1348,22 @@ class _SchedulePageState extends State<SchedulePage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text("今日日程概要", style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blue)),
+                        const Text(
+                          "今日日程概要",
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.blue,
+                          ),
+                        ),
                         const SizedBox(height: 4),
-                        Text(_summary, style: const TextStyle(fontSize: 16, color: Colors.black87)),
+                        Text(
+                          _summary,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            color: Colors.black87,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -1320,7 +1372,10 @@ class _SchedulePageState extends State<SchedulePage> {
                       if (_itinerary.isNotEmpty && mounted) {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => ScheduleDetailPage(content: _itinerary)),
+                          MaterialPageRoute(
+                            builder: (context) =>
+                                ScheduleDetailPage(content: _itinerary),
+                          ),
                         );
                       }
                     },
@@ -1334,8 +1389,6 @@ class _SchedulePageState extends State<SchedulePage> {
       ),
     );
   }
-
-
 
   @override
   void dispose() {

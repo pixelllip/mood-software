@@ -175,7 +175,7 @@ class _HistoryPageState extends State<HistoryPage> {
                                 return Container(
                                   padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
                                   decoration: BoxDecoration(
-                                    color: isUser ? Colors.transparent : Colors.grey.withOpacity(0.05),
+                                    color: isUser ? Colors.transparent : Colors.grey.withValues(alpha: 0.05),
                                   ),
                                   child: Row(
                                     crossAxisAlignment: CrossAxisAlignment.start,

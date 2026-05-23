@@ -34,7 +34,6 @@ dependencies:
     sdk: flutter
   dio: ^5.8.0
   socket_io_client:
-  network_info_plus: ^6.0.0
   path_provider:
   flutter_markdown:
 
