@@ -2,25 +2,44 @@ from flask import Flask, request, jsonify, Response, stream_with_context
 import os
 import sys
 import traceback
+import json
 
 # 确保可以导入 core 模块
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from core.ai_agent import AiAgent
+from core.ai_agent import AiAgent, _load_ai_config_from_json
 from tools.score_management.services import StudentScoreService
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # 💡 平台路径自动修正逻辑
-base_path = os.getenv("BASE_PATH", ".")
+def _resolve_base_path():
+    # 尝试从 config.json 读取 BASE_PATH
+    config_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config.json"),
+        os.path.join(os.path.expanduser("~"), "Documents", "Academic Aegis", "config.json"),
+    ]
+    for cp in config_paths:
+        if os.path.exists(cp):
+            try:
+                with open(cp, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+                bp = cfg.get("BASE_PATH", "")
+                if bp:
+                    return bp
+            except:
+                pass
+    return os.getenv("BASE_PATH", ".")
+
+base_path = _resolve_base_path()
 if sys.platform == 'win32' and base_path.startswith('/storage/emulated/'):
     # 如果在 Windows 上运行且路径是安卓格式，修正为本地目录
     new_path = os.path.join(os.path.expanduser("~"), "Documents", "Aegis Academic")
-    os.environ["BASE_PATH"] = new_path
+    base_path = new_path
     print(f">>> 检测到 Windows 环境，已将安卓路径修正为: {new_path}")
     if not os.path.exists(new_path):
         os.makedirs(new_path)
+
+os.environ["BASE_PATH"] = base_path
+print(f">>> BASE_PATH: {base_path}")
 
 app = Flask(__name__)
 
@@ -168,7 +187,7 @@ def schedule():
         """
         
         response = agent.client.chat.completions.create(
-            model="qwen-plus",
+            model=agent.model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
             timeout=60
@@ -201,13 +220,17 @@ def schedule():
 
 @app.route('/history/dates', methods=['GET'])
 def get_history_dates():
+    sort_order = request.args.get('sort', 'desc')
     base_path = os.getenv("BASE_PATH", ".").strip('"').strip("'")
     backlog_path = os.path.join(base_path, "Backlog")
     if not os.path.exists(backlog_path):
         return jsonify([])
     try:
         dates = [d for d in os.listdir(backlog_path) if os.path.isdir(os.path.join(backlog_path, d))]
-        return jsonify(sorted(dates, reverse=True))
+        if sort_order == 'asc':
+            return jsonify(sorted(dates))
+        else:
+            return jsonify(sorted(dates, reverse=True))
     except Exception as e:
         return jsonify([])
 
@@ -216,8 +239,46 @@ def get_history_list():
     target_date = request.args.get('date')
     if not target_date:
         return jsonify({"error": "No date provided"}), 400
-    results = agent.backlog.load_backlog(target_date)
+    start_time = request.args.get('start_time')  # HH:MM
+    end_time = request.args.get('end_time')      # HH:MM
+    results = agent.backlog.load_backlog(target_date, start_time=start_time, end_time=end_time)
     return jsonify(results)
+
+@app.route('/history/range', methods=['GET'])
+def get_history_range():
+    """获取指定日期范围内的所有对话记录"""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    sort_order = request.args.get('sort', 'desc')
+    start_time = request.args.get('start_time')  # HH:MM
+    end_time = request.args.get('end_time')      # HH:MM
+    
+    if not start_date or not end_date:
+        return jsonify({"error": "start_date and end_date required"}), 400
+    
+    base_path = os.getenv("BASE_PATH", ".").strip('"').strip("'")
+    backlog_path = os.path.join(base_path, "Backlog")
+    if not os.path.exists(backlog_path):
+        return jsonify({})
+    
+    try:
+        # 收集在日期范围内的所有文件夹
+        all_dates = [d for d in os.listdir(backlog_path) if os.path.isdir(os.path.join(backlog_path, d))]
+        filtered_dates = [d for d in all_dates if start_date <= d <= end_date]
+        
+        if sort_order == 'asc':
+            filtered_dates.sort()
+        else:
+            filtered_dates.sort(reverse=True)
+        
+        results = {}
+        for date_str in filtered_dates:
+            day_results = agent.backlog.load_backlog(date_str, start_time=start_time, end_time=end_time)
+            results.update(day_results)
+        
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 def start_server():
     print("\n" + "="*50)

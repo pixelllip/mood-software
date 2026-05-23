@@ -93,7 +93,6 @@ fun main(args: Array<String>) {
 
     println(">>> Kotlin 后端启动中...")
     println(">>> 端口: $port${if (portFromArgs != null) " (来自命令行)" else if (portFromEnv != null) " (来自环境变量)" else " (来自 config.json)"}")
-    println(">>> 模型: qwen3.5-flash")
     println(">>> 数据路径: ${EnvConfig.basePath}")
     println(">>> config.json: ${File(EnvConfig.basePath, "config.json").absolutePath}")
     println(">>> Backlog 目录: ${File(EnvConfig.basePath, "Backlog").absolutePath}")
@@ -310,7 +309,7 @@ fun Application.module() {
                     "\n【学习情况参考】：该学生薄弱学科：$studyList。请在日程中合理插入复习时间。\n"
                 } else ""
 
-                // 3. AI 规划 - 使用 qwen3.5-flash
+                // 3. AI 规划
                 println("[${(System.currentTimeMillis() - startTime) / 1000.0}s] 正在调用 AI 规划...")
 
                 val prompt = """
@@ -328,17 +327,18 @@ fun Application.module() {
                     }
                 """.trimIndent()
 
-                val apiKey = EnvConfig.openaiApiKey.ifBlank { EnvConfig.dashscopeApiKey }
+                val apiKey = EnvConfig.activeApiKey
                 val scheduleJson = JSONObject().apply {
-                    put("model", "qwen3.5-flash")
+                    put("model", EnvConfig.activeModel)
                     put("messages", listOf(
                         mapOf("role" to "user", "content" to prompt)
                     ))
                     put("temperature", 0.7)
                 }
 
+                val chatUrl = "${EnvConfig.activeBaseUrl}/chat/completions"
                 val request = Request.Builder()
-                    .url("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+                    .url(chatUrl)
                     .addHeader("Authorization", "Bearer $apiKey")
                     .addHeader("Content-Type", "application/json")
                     .post(scheduleJson.toString().toRequestBody("application/json".toMediaType()))
@@ -390,29 +390,68 @@ fun Application.module() {
 
         // ========== 历史记录 ==========
 
-        // GET /history/dates - 获取有记录的日期列表
+        // GET /history/dates - 获取有记录的日期列表（支持 sort=asc|desc）
         get("/history/dates") {
+            val sortOrder = call.request.queryParameters["sort"] ?: "desc"
             val backlogDir = File(EnvConfig.basePath, "Backlog")
             val dates = if (backlogDir.exists()) {
-                backlogDir.listFiles()
+                val list = backlogDir.listFiles()
                     ?.filter { it.isDirectory }
                     ?.map { it.name }
-                    ?.sortedDescending()
                     ?: emptyList()
+                if (sortOrder == "asc") list.sorted() else list.sortedDescending()
             } else emptyList()
-            println(">>> 历史日期列表: $dates")
+            println(">>> 历史日期列表 (sort=$sortOrder): $dates")
             call.respond(dates)
         }
 
-        // GET /history/list?date=YYYY-MM-DD - 获取指定日期的对话记录
+        // GET /history/list?date=YYYY-MM-DD&start_time=HH:MM&end_time=HH:MM - 获取指定日期的对话记录
         get("/history/list") {
             val dateStr = call.request.queryParameters["date"]
             if (dateStr.isNullOrBlank()) {
                 call.respond(mapOf<String, Any>())
                 return@get
             }
-            val results = agent.backlog.loadBacklog(dateStr)
+            val startTime = call.request.queryParameters["start_time"]
+            val endTime = call.request.queryParameters["end_time"]
+            val results = agent.backlog.loadBacklog(dateStr, startTime = startTime, endTime = endTime)
             println(">>> 加载历史记录: $dateStr, ${results.size} 条")
+            call.respond(results)
+        }
+
+        // GET /history/range?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&sort=asc|desc&start_time=HH:MM&end_time=HH:MM
+        get("/history/range") {
+            val startDate = call.request.queryParameters["start_date"]
+            val endDate = call.request.queryParameters["end_date"]
+            val sortOrder = call.request.queryParameters["sort"] ?: "desc"
+            val startTime = call.request.queryParameters["start_time"]
+            val endTime = call.request.queryParameters["end_time"]
+
+            if (startDate.isNullOrBlank() || endDate.isNullOrBlank()) {
+                call.respond(mapOf<String, Any>())
+                return@get
+            }
+
+            val backlogDir = File(EnvConfig.basePath, "Backlog")
+            if (!backlogDir.exists()) {
+                call.respond(mapOf<String, Any>())
+                return@get
+            }
+
+            val allDates = backlogDir.listFiles()
+                ?.filter { it.isDirectory }
+                ?.map { it.name }
+                ?.filter { it >= startDate && it <= endDate }
+                ?: emptyList()
+
+            val sortedDates = if (sortOrder == "asc") allDates.sorted() else allDates.sortedDescending()
+
+            val results = mutableMapOf<String, Any>()
+            for (dateStr in sortedDates) {
+                val dayResults = agent.backlog.loadBacklog(dateStr, startTime = startTime, endTime = endTime)
+                results.putAll(dayResults)
+            }
+            println(">>> 加载历史记录范围: $startDate ~ $endDate (sort=$sortOrder), ${results.size} 条")
             call.respond(results)
         }
     }

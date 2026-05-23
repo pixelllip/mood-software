@@ -18,16 +18,54 @@ class AI_Agent:
     _schedule_max_total_tokens: int
     _schedule_max_output_tokens: int
 
+    @staticmethod
+    def _load_ai_config() -> dict:
+        """从 config.json 读取已启用的 AI 配置"""
+        config_paths = [
+            os.path.join(os.path.expanduser("~"), "Documents", "Academic Aegis", "config.json"),
+        ]
+        # 也尝试从 BASE_PATH
+        base_path = os.getenv("BASE_PATH", "")
+        if base_path:
+            config_paths.insert(0, os.path.join(base_path, "config.json"))
+
+        for cp in config_paths:
+            if os.path.exists(cp):
+                try:
+                    with open(cp, 'r', encoding='utf-8') as f:
+                        config = json.load(f)
+                    ai_configs = config.get("AI_CONFIGS", [])
+                    for item in ai_configs:
+                        if item.get("enabled", False):
+                            return item
+                    if ai_configs:
+                        return ai_configs[0]
+                    # 兼容旧版
+                    api_key = config.get("OPENAI_API_KEY", "") or config.get("DASHSCOPE_API_KEY", "")
+                    if api_key:
+                        return {
+                            "name": "旧版配置",
+                            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                            "api_key": api_key,
+                            "model": "qwen-plus",
+                            "enabled": True
+                        }
+                except Exception as e:
+                    print(f"读取 AI 配置失败: {e}")
+        return {}
+
     def __init__(self) -> None:
 
-        # 加载OpenAI API，这里使用千问服务
-        load_dotenv()
-        # 获取 OPENAI_API_KEY 环境变量
-        api_key = os.getenv('OPENAI_API_KEY') or ""
+        # 从 config.json 读取 AI 配置
+        ai_config = self._load_ai_config()
+        api_key = ai_config.get("api_key", "") or os.getenv('OPENAI_API_KEY') or ""
+        base_url = ai_config.get("base_url", 'https://dashscope.aliyuncs.com/compatible-mode/v1')
+        self.model = ai_config.get("model", "qwen-plus")
+
         # 创建 OpenAI 客户端
         self.client = OpenAI(
             api_key=api_key,
-            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+            base_url=base_url
         )
 
         # 初始化对话记录
@@ -211,14 +249,6 @@ class AI_Agent:
             self.process_response(final_response, final=True)
         elif tool_name == "load_backlog":
             self.tool.load_backlog(self.backlog, **args)
-        elif tool_name == "run_script":
-            self.tool.run_script(**args)
-        elif tool_name == "text_to_image":
-            image = self.tool.text_to_image(args)
-            if image:
-                print(f"成功生成图片。")
-            else:
-                print("未能生成图片。")
         elif tool_name == "task_organizer_tool":
             tasks = args.get('tasks', [])
             self.tool.task_organizer(tasks)
@@ -237,6 +267,17 @@ class AI_Agent:
                 self.process_response(final_response, final=True)
         elif tool_name == "qwen_websearch":
                 self.tool.qwen_websearch(**args)
+        elif tool_name == "locate_ip":
+            info = self.tool.locate_ip(**args)
+            final_response = self.client.responses.create(
+                model="qwen3.5-flash",
+                input=[{
+                    "role": "system",
+                    "content": f"以下是根据工具获取的信息：{info}。请基于这些信息回答用户的问题。"
+                }],
+                stream=True
+            )
+            self.process_response(final_response, final=True)
         else:
             print(f"\n[未知工具: {tool_name}]")
 

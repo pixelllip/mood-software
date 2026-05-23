@@ -31,11 +31,9 @@
 
 | 工具名 | 功能 | 参数 |
 |------|------|------|
-| `text_to_image` | 文本生成图片（调用本地 SD WebUI） | prompt, negative_prompt, width, height, steps, guidance_scale, seed |
 | `get_weather` | 获取实时天气信息 | adcode（城市编码） |
 | `get_local_backlog` | 获取当前对话记录 | backlog 对象 |
 | `backlog_read_range` | 查询日期范围内的对话 | start_date, end_date |
-| `run_script` | 执行本地脚本（Python/BAT） | script_path, target_path |
 | `image_recognition` | 多场景图像识别（车型、菜品、动物等） | image_path, scene |
 | `qwen_websearch` | 通义千问联网搜索问答 | query |
 | `task_organizer` | 生成格式化的待办清单 | tasks |

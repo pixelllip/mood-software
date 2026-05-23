@@ -15,12 +15,57 @@ except ImportError:
 
 load_dotenv()
 
+def _load_ai_config_from_json():
+    """从 config.json 读取已启用的 AI 配置"""
+    base_path = os.getenv("BASE_PATH", ".")
+    config_path = os.path.join(base_path, "config.json")
+    # 也尝试用户文档目录
+    if not os.path.exists(config_path):
+        user_home = os.path.expanduser("~")
+        config_path = os.path.join(user_home, "Documents", "Academic Aegis", "config.json")
+    if not os.path.exists(config_path):
+        return None
+
+    try:
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        ai_configs = config.get("AI_CONFIGS", [])
+        # 找到启用的
+        for item in ai_configs:
+            if item.get("enabled", False):
+                return item
+        # 没有启用的，返回第一个
+        if ai_configs:
+            return ai_configs[0]
+        # 兼容旧版
+        api_key = config.get("OPENAI_API_KEY", "") or config.get("DASHSCOPE_API_KEY", "")
+        if api_key:
+            return {
+                "name": "旧版配置",
+                "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                "api_key": api_key,
+                "model": "qwen-plus",
+                "enabled": True
+            }
+    except Exception as e:
+        print(f"读取 AI 配置失败: {e}")
+    return None
+
 class AiAgent:
     def __init__(self):
-        api_key = os.getenv('OPENAI_API_KEY')
+        ai_config = _load_ai_config_from_json()
+        if ai_config:
+            api_key = ai_config.get("api_key", "")
+            base_url = ai_config.get("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1")
+            self.model = ai_config.get("model", "qwen-plus")
+        else:
+            api_key = os.getenv('OPENAI_API_KEY') or os.getenv('DASHSCOPE_API_KEY') or ""
+            base_url = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+            self.model = "qwen-plus"
+
         self.client = OpenAI(
             api_key=api_key,
-            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1'
+            base_url=base_url
         )
         self.backlog = Backlog()
         self.tool = AgentTools()
@@ -32,7 +77,7 @@ class AiAgent:
         # 构建消息列表
         system_prompt = (
             "你是一个功能强大的智能助手。你有权调用各种工具来帮助用户，"
-            "例如查询天气（get_weather）、生成图片（text_to_image）、搜索网页（qwen_websearch）等。"
+            "例如查询天气（get_weather）、搜索网页（qwen_websearch）等。"
             "当用户的问题需要实时信息或特定功能时，请务必先调用对应的工具。"
             "请用中文回答。"
         )
@@ -45,7 +90,7 @@ class AiAgent:
         messages.extend(self.backlog.message)
 
         response = self.client.chat.completions.create(
-            model="qwen-plus",
+            model=self.model,
             messages=messages,
             tools=self.tool.tool_list,
             tool_choice="auto"
@@ -72,7 +117,7 @@ class AiAgent:
             })
             
             final_response = self.client.chat.completions.create(
-                model="qwen-plus",
+                model=self.model,
                 messages=messages
             )
             reply = final_response.choices[0].message.content
@@ -89,10 +134,10 @@ class AiAgent:
         system_prompt = (
             "你是一个集成了一系列本地和线上工具的超级助理。你的名字是星火学伴 AI。\n"
             "【核心规则】：\n"
-            "1. 当用户询问天气、路况、搜索信息、识别图片、生成图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n"
+            "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n"
             "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n"
             "3. 你的回答应当简洁、友好且有用。\n"
-            "【当前可用工具】：get_weather, get_traffic, text_to_image, qwen_websearch, image_recognition"
+            "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition"
         )
         
         messages = [{"role": "system", "content": system_prompt}]
@@ -102,7 +147,7 @@ class AiAgent:
 
         # 发起带工具的流式请求
         response = self.client.chat.completions.create(
-            model="qwen-plus",
+            model=self.model,
             messages=messages,
             tools=self.tool.tool_list,
             tool_choice="auto",
@@ -157,7 +202,7 @@ class AiAgent:
             
             # 执行完工具后，再次流式调用以汇总结果
             final_stream = self.client.chat.completions.create(
-                model="qwen-plus",
+                model=self.model,
                 messages=messages,
                 stream=True
             )
@@ -185,16 +230,14 @@ class AiAgent:
             return self.tool.get_traffic(**arguments)
         elif tool_name == "load_backlog":
             return self.tool.load_backlog(self.backlog, **arguments)
-        elif tool_name == "run_script":
-            return self.tool.run_script(**arguments)
-        elif tool_name == "text_to_image":
-            return self.tool.text_to_image(arguments)
         elif tool_name == "task_organizer_tool":
             return self.tool.task_organizer(arguments.get('tasks', []))
         elif tool_name == "image_recognition":
             return self.tool.image_recognition(**arguments)
         elif tool_name == "qwen_websearch":
             return self.tool.qwen_websearch(**arguments)
+        elif tool_name == "locate_ip":
+            return self.tool.locate_ip(**arguments)
         elif tool_name == "query_score":
             return self.tool.query_score(**arguments)
         elif tool_name == "add_score":

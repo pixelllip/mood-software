@@ -70,6 +70,81 @@ Future<void> saveConfigFile(Map<String, dynamic> config) async {
   await file.writeAsString(const JsonEncoder.withIndent('  ').convert(config));
 }
 
+// ========== AI 配置管理 ==========
+
+/// AI 配置项的数据模型
+class AiConfig {
+  final String name;
+  final String baseUrl;
+  final String apiKey;
+  final String model;
+  final bool enabled;
+
+  const AiConfig({
+    this.name = '',
+    this.baseUrl = '',
+    this.apiKey = '',
+    this.model = '',
+    this.enabled = false,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'base_url': baseUrl,
+    'api_key': apiKey,
+    'model': model,
+    'enabled': enabled,
+  };
+
+  factory AiConfig.fromJson(Map<String, dynamic> json) => AiConfig(
+    name: json['name']?.toString() ?? '',
+    baseUrl: json['base_url']?.toString() ?? '',
+    apiKey: json['api_key']?.toString() ?? '',
+    model: json['model']?.toString() ?? '',
+    enabled: json['enabled'] == true,
+  );
+
+  AiConfig copyWith({
+    String? name,
+    String? baseUrl,
+    String? apiKey,
+    String? model,
+    bool? enabled,
+  }) => AiConfig(
+    name: name ?? this.name,
+    baseUrl: baseUrl ?? this.baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    model: model ?? this.model,
+    enabled: enabled ?? this.enabled,
+  );
+}
+
+/// 从 config 中读取 AI 配置列表
+List<AiConfig> getAiConfigs(Map<String, dynamic> config) {
+  final list = config['AI_CONFIGS'] as List<dynamic>?;
+  if (list == null) return [];
+  return list.map((e) => AiConfig.fromJson(e as Map<String, dynamic>)).toList();
+}
+
+/// 获取已启用的 AI 配置（第一个 enabled=true 的配置）
+AiConfig? getEnabledAiConfig(Map<String, dynamic> config) {
+  final configs = getAiConfigs(config);
+  try {
+    return configs.firstWhere((c) => c.enabled);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 保存 AI 配置列表到 config
+Map<String, dynamic> setAiConfigs(
+  Map<String, dynamic> config,
+  List<AiConfig> configs,
+) {
+  config['AI_CONFIGS'] = configs.map((c) => c.toJson()).toList();
+  return config;
+}
+
 // 获取全平台统一的 Academic Aegis 目录
 Future<Directory> getProjectDirectory() async {
   if (Platform.isWindows) {

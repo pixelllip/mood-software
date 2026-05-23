@@ -68,13 +68,35 @@ class Backlog {
         metaPath.writeText(json.encodeToString(metaData), Charsets.UTF_8)
     }
 
-    fun loadBacklog(targetDate: String): Map<String, ChatHistoryResult> {
+    /**
+     * 从文件名 HH-MM-SS.json 中提取时间字符串 HH:MM
+     */
+    private fun timeFromFilename(filename: String): String? {
+        return try {
+            val name = filename.removeSuffix(".json")
+            val parts = name.split("-")
+            if (parts.size >= 2) {
+                "${parts[0].padStart(2, '0')}:${parts[1].padStart(2, '0')}"
+            } else null
+        } catch (_: Exception) { null }
+    }
+
+    fun loadBacklog(targetDate: String, startTime: String? = null, endTime: String? = null): Map<String, ChatHistoryResult> {
         val results = mutableMapOf<String, ChatHistoryResult>()
         val backlogDir = File(EnvConfig.basePath, "Backlog/$targetDate")
         if (!backlogDir.exists()) return results
 
         backlogDir.listFiles { f -> f.extension == "json" && !f.name.endsWith(".meta.json") }?.forEach { jsonFile ->
             try {
+                // 时间范围过滤
+                if (startTime != null || endTime != null) {
+                    val fileTime = timeFromFilename(jsonFile.name)
+                    if (fileTime != null) {
+                        if (startTime != null && fileTime < startTime) return@forEach
+                        if (endTime != null && fileTime > endTime) return@forEach
+                    }
+                }
+
                 val rawMessages = json.decodeFromString<List<ChatMessage>>(jsonFile.readText(Charsets.UTF_8))
                 val filtered = rawMessages.filter { it.role != "system" }
                 val metaFile = File(jsonFile.parent, jsonFile.nameWithoutExtension + ".meta.json")
@@ -134,6 +156,17 @@ class Instructions {
 }
 
 /**
+ * AI 配置项数据类
+ */
+data class AiConfigItem(
+    val name: String,
+    val baseUrl: String,
+    val apiKey: String,
+    val model: String,
+    val enabled: Boolean = false
+)
+
+/**
  * 环境配置，唯一从 Documents/Academic Aegis/config.json 读取
  * 不存在则自动生成模板
  */
@@ -172,6 +205,49 @@ object EnvConfig {
 
     val studentName: String by lazy { ensureLoaded(); (_config["STUDENT_NAME"] as? String) ?: "" }
 
+    // ========== AI_CONFIGS 支持 ==========
+    val aiConfigs: List<AiConfigItem> by lazy {
+        ensureLoaded()
+        parseAiConfigs(_config["AI_CONFIGS"])
+    }
+
+    /** 获取已启用的 AI 配置 */
+    val enabledAiConfig: AiConfigItem? by lazy {
+        aiConfigs.firstOrNull { it.enabled }
+    }
+
+    /** 兼容旧版：如果有 AI_CONFIGS 则用启用的，否则回退到旧字段 */
+    val activeApiKey: String by lazy {
+        enabledAiConfig?.apiKey?.takeIf { it.isNotBlank() }
+            ?: openaiApiKey.ifBlank { dashscopeApiKey }
+    }
+
+    val activeBaseUrl: String by lazy {
+        enabledAiConfig?.baseUrl?.takeIf { it.isNotBlank() }
+            ?: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    }
+
+    val activeModel: String by lazy {
+        enabledAiConfig?.model?.takeIf { it.isNotBlank() }
+            ?: "qwen3.5-flash"
+    }
+
+    private fun parseAiConfigs(raw: Any?): List<AiConfigItem> {
+        if (raw !is List<*>) return emptyList()
+        return raw.mapNotNull { item ->
+            if (item !is Map<*, *>) return@mapNotNull null
+            try {
+                AiConfigItem(
+                    name = (item["name"] as? String) ?: "",
+                    baseUrl = (item["base_url"] as? String) ?: "",
+                    apiKey = (item["api_key"] as? String) ?: "",
+                    model = (item["model"] as? String) ?: "",
+                    enabled = (item["enabled"] as? Boolean) ?: false
+                )
+            } catch (_: Exception) { null }
+        }
+    }
+
     // ========== 加载逻辑 ==========
     private fun ensureLoaded() {
         if (_loaded) return
@@ -190,10 +266,17 @@ object EnvConfig {
   "BASE_PATH": "$configDir",
   "STUDENT_ID": "",
   "STUDENT_NAME": "",
-  "OPENAI_API_KEY": "",
   "Gaode_API_Key": "",
-  "DASHSCOPE_API_KEY": "",
-  "SERVER_PORT": 8080
+  "SERVER_PORT": 8080,
+  "AI_CONFIGS": [
+    {
+      "name": "阿里云通义千问",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "api_key": "",
+      "model": "qwen-plus",
+      "enabled": true
+    }
+  ]
 }"""
         configFile.writeText(template, Charsets.UTF_8)
         println(">>> 模板已生成，请编辑 $configFile 填入配置后重启后端")

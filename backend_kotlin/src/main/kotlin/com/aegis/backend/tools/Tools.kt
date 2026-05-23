@@ -193,6 +193,33 @@ class AgentTools {
     }
 
     /**
+     * 根据IP地址获取地理位置信息（基于高德地图API）
+     */
+    fun locateIp(ip: String = ""): Any? {
+        val apiKey = EnvConfig.gaodeApiKey
+        if (apiKey.isBlank()) {
+            println("❌ 环境变量缺失：Gaode_API_Key")
+            return null
+        }
+
+        val url = if (ip.isNotBlank()) {
+            "https://restapi.amap.com/v3/ip?key=$apiKey&ip=$ip"
+        } else {
+            "https://restapi.amap.com/v3/ip?key=$apiKey"
+        }
+
+        return try {
+            val request = Request.Builder().url(url).get().build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+            if (body != null) JSONObject(body).toMap() else null
+        } catch (e: Exception) {
+            println("获取IP定位失败: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * 日程规划
      */
     fun taskOrganizer(tasks: List<String>): String {

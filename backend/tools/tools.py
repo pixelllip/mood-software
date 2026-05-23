@@ -1,7 +1,6 @@
 from typing import Type, List, TypedDict, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-import subprocess
 import requests
 import sys
 import os
@@ -53,21 +52,6 @@ class Load_Backlog(BaseModel):
     """加载指定日期的对话记录"""
     target_date: str = Field(..., description="目标日期")
 
-class Run_Script(BaseModel):
-    """运行指定的脚本文件"""
-    script_path: str = Field(..., description="要运行的脚本的文件路径")
-    target_path: str = Field(..., description="被脚本加工的对象的文件路径")
-
-class Text_to_Image(BaseModel):
-    """根据文本描述生成图片"""
-    prompt: str = Field(..., description="用于生成图片的文本描述")
-    negative_prompt: str = Field("", description="（可选）生成图片时要避免的元素描述")
-    width: int = Field(512, description="生成图片的宽度")
-    height: int = Field(512, description="生成图片的高度")
-    num_inference_steps: int = Field(20, description="生成图片的迭代步数")
-    guidance_scale: float = Field(7.0, description="引导尺度")
-    seed: int = Field(-1, description="随机种子")
-
 class TaskOrganizerTool(BaseModel):
     """生成格式化的待办清单"""
     tasks: List[str] = Field(..., description="任务列表")
@@ -80,6 +64,10 @@ class Image_Recognition(BaseModel):
 class Qwen_WebSearch(BaseModel):
     """通义千问联网搜索问答"""
     query: str = Field(..., description="用户要搜索或提问的问题")
+
+class Locate_IP(BaseModel):
+    """根据IP地址获取地理位置信息（基于高德地图API）"""
+    ip: str = Field("", description="要查询的IP地址，不传则自动查询当前设备公网IP所在的位置")
 
 class Query_Score(BaseModel):
     """查询学生成绩"""
@@ -124,8 +112,8 @@ class AgentTools:
     def __init__(self):
         self.tool_list = build_tools_list([
             Get_Local_Backlog, Get_Weather, Get_Traffic, Load_Backlog, 
-            Run_Script, Text_to_Image, Image_Recognition,
-            TaskOrganizerTool, Qwen_WebSearch,
+            Image_Recognition,
+            TaskOrganizerTool, Qwen_WebSearch, Locate_IP,
             Query_Score, Add_Score, Delete_Score
         ])
         self.score_service = StudentScoreService()
@@ -217,113 +205,6 @@ class AgentTools:
         dev_path = os.path.join(os.path.abspath("."), relative_path)
         return dev_path
 
-    def run_script(self, script_path: str, target_path: str = ""):
-        """对目标运行指定的脚本文件"""
-        if script_path == "EasterEgg":
-            doom_path = self.get_resource_path(os.path.join("tools", "Windows-UZDoom-Nightly", "uzdoom.exe"))
-            if os.path.exists(doom_path):
-                print(f"[BONUS] 激活彩蛋！正在启动: {doom_path}")
-                try:
-                    subprocess.Popen([doom_path]) 
-                    return 0
-                except Exception as e:
-                    print(f"【错误】无法启动彩蛋程序: {e}")
-                    return -1
-            else:
-                print(f"【提醒】发现彩蛋指令，但未找到程序: {doom_path}")
-        
-        script_path = os.path.abspath(os.path.normpath(script_path))
-        target_path = os.path.abspath(os.path.normpath(target_path))
-
-        if not os.path.isfile(script_path):
-            print(f"【错误】脚本不存在: {script_path}")
-            return -1
-
-        _, ext = os.path.splitext(script_path.lower())
-
-        try:
-            if ext in ['.bat', '.cmd']:
-                cmd = f'"{script_path}" "{target_path}"'
-                print(f"[INFO] 执行命令: {cmd}")
-                result = subprocess.run(cmd, shell=True, check=True)
-            elif ext == '.py':
-                cmd = [sys.executable, script_path, target_path]
-                print(f"[INFO] 执行命令: {cmd}")
-                result = subprocess.run(cmd, shell=False, check=True)
-            else:
-                print(f"【错误】不支持的脚本类型: {ext}")
-                return -1
-
-            print(f"[INFO] 运行完成，返回码: {result.returncode}")
-            return result.returncode
-        except subprocess.CalledProcessError as exc:
-            print(f"【错误】脚本执行失败，返回码: {exc.returncode}")
-            return exc.returncode
-        except Exception as exc:
-            print(f"【错误】脚本执行异常: {exc}")
-            return -1
-        
-
-    def text_to_image(self, arguments: Dict[str, Any]):
-        """根据文本描述生成图片"""
-        import base64
-        from io import BytesIO
-        from PIL import Image
-        import time
-        
-        try:
-            prompt = arguments.get("prompt")
-            if not prompt:
-                return None
-            
-            negative_prompt = arguments.get("negative_prompt", "")
-            width = int(arguments.get("width", 512))
-            height = int(arguments.get("height", 512))
-            num_inference_steps = int(arguments.get("num_inference_steps", 20))
-            guidance_scale = float(arguments.get("guidance_scale", 7.0))
-            seed = int(arguments.get("seed", -1))
-            
-            width = (width // 8) * 8
-            height = (height // 8) * 8
-            
-            api_url = "http://127.0.0.1:7860/sdapi/v1/txt2img"
-            payload = {
-                "prompt": prompt,
-                "negative_prompt": negative_prompt,
-                "width": width,
-                "height": height,
-                "steps": num_inference_steps,
-                "cfg_scale": guidance_scale,
-                "seed": seed
-            }
-            
-            response = requests.post(api_url, json=payload, timeout=300)
-            response.raise_for_status()
-            result = response.json()
-            
-            if "images" in result and len(result["images"]) > 0:
-                img_base64 = result["images"][0]
-                img_data = base64.b64decode(img_base64)
-                image = Image.open(BytesIO(img_data))
-                
-                timestamp = int(time.time() * 1000)
-                output_dir = os.path.join(os.getcwd(), "Generated Images")
-                os.makedirs(output_dir, exist_ok=True)
-                local_file = os.path.join(output_dir, f"generated_{timestamp}.png")
-                image.save(local_file)
-                
-                try:
-                    if os.name == 'nt':
-                        os.startfile(local_file)
-                    elif os.name == 'posix':
-                        subprocess.run(['xdg-open', local_file], check=False)
-                except Exception:
-                    pass
-                return local_file
-            return None
-        except Exception:
-            return None
-        
     def image_recognition(self, image_path: str, scene: str = "car"):
         """多场景图像识别"""
         import base64
@@ -384,6 +265,19 @@ class AgentTools:
         except Exception as e:
             return f"搜索失败：{str(e)}"
     
+    def locate_ip(self, ip: str = ""):
+        """根据IP地址获取地理位置信息（基于高德地图API）"""
+        gaode_api_key = os.getenv("Gaode_API_Key")
+        if not gaode_api_key:
+            raise Exception("❌ 环境变量缺失：Gaode_API_Key")
+        
+        url = "https://restapi.amap.com/v3/ip"
+        params = {"key": gaode_api_key}
+        if ip:
+            params["ip"] = ip
+        
+        result = requests.get(url, params=params, timeout=10).json()
+        return result
 
     def task_organizer(self, tasks: List[str]):
         """生成格式化的待办清单"""

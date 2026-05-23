@@ -73,11 +73,25 @@ class Backlog:
         except Exception as e:
             print(f"保存摘要失败: {e}")
 
-    def load_backlog(self, target_date):
+    @staticmethod
+    def _time_from_filename(filename):
+        """从文件名 HH-MM-SS.json 中提取时间字符串 HH:MM"""
+        try:
+            name = filename.replace('.json', '')
+            parts = name.split('-')
+            if len(parts) >= 2:
+                return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+        except:
+            pass
+        return None
+
+    def load_backlog(self, target_date, start_time=None, end_time=None):
         """
         ### 读取指定日期范围内的所有对话
         Args:
             target_date (str): 目标日期，格式为 'YYYY-MM-DD'
+            start_time (str, optional): 起始时间 'HH:MM'，只返回该时间之后的记录
+            end_time (str, optional): 结束时间 'HH:MM'，只返回该时间之前的记录
         Returns:
             包含所有符合条件对话的字典，键为文件名，值为包含 messages 和 summary 的对象
         """
@@ -95,6 +109,15 @@ class Backlog:
             if json_file.suffix != '.json': continue
             # 跳过 meta 文件
             if json_file.name.endswith('.meta.json'): continue
+
+            # 时间范围过滤
+            if start_time or end_time:
+                file_time = self._time_from_filename(json_file.name)
+                if file_time:
+                    if start_time and file_time < start_time:
+                        continue
+                    if end_time and file_time > end_time:
+                        continue
             
             with open(json_file, 'r', encoding='utf-8') as f:
                 try:

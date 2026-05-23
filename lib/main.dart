@@ -29,10 +29,9 @@ void main() async {
       "BASE_PATH": projectDir.path,
       "STUDENT_ID": "",
       "STUDENT_NAME": "",
-      "OPENAI_API_KEY": "",
       "Gaode_API_Key": "",
-      "DASHSCOPE_API_KEY": "",
       "SERVER_PORT": 8080,
+      "AI_CONFIGS": [],
     };
     await saveConfigFile(defaultConfig);
     debugPrint('>>> 模板已生成: ${configFile.path}');
@@ -41,13 +40,15 @@ void main() async {
     // 存在 → 读取配置
     final config = await loadConfigFile();
     final port = (config['SERVER_PORT'] ?? config['PORT'] ?? 8080) as int;
-    final openaiKey = (config['OPENAI_API_KEY'] ?? '') as String;
+    final enabledAi = getEnabledAiConfig(config);
 
     debugPrint('>>> 读取到端口: $port');
-    debugPrint('>>> OPENAI_API_KEY: ${openaiKey.isNotEmpty ? "已配置" : "为空"}');
+    debugPrint(
+      '>>> AI 配置: ${enabledAi != null ? "已配置(${enabledAi.name})" : "未配置"}',
+    );
 
-    if (openaiKey.isEmpty) {
-      debugPrint('>>> API Key 为空，跳转欢迎页');
+    if (enabledAi == null || enabledAi.apiKey.isEmpty) {
+      debugPrint('>>> AI 配置为空，跳转欢迎页');
       showWelcome = true;
     } else {
       // 启动后端并等待就绪
@@ -59,7 +60,7 @@ void main() async {
         dio = Dio(
           BaseOptions(
             baseUrl: baseUrl,
-            headers: {"Authorization": "Bearer $openaiKey"},
+            headers: {"Authorization": "Bearer ${enabledAi.apiKey}"},
             connectTimeout: const Duration(seconds: 30),
             receiveTimeout: const Duration(seconds: 60),
           ),

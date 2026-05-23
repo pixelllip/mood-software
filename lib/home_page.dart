@@ -11,6 +11,7 @@ import 'package:flutter/widget_previews.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:ai_agent/schedule_detail_page.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.dio});
@@ -305,8 +306,82 @@ class _HomeContentState extends State<HomeContent> {
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  /// 当前提问是否涉及地图/位置相关
+  bool _isMapQuery = false;
+
+  /// 地图相关关键词列表
+  static const _mapKeywords = [
+    '地图',
+    '导航',
+    '位置',
+    '路线',
+    '路况',
+    '在哪里',
+    '怎么去',
+    '到',
+    '地址',
+    '附近',
+    '周边',
+    '地理位置',
+    '定位',
+    '坐标',
+    '经纬度',
+    'map',
+    'location',
+    '导航到',
+    'route',
+    'direction',
+    '地图上',
+    '高德',
+    'amap',
+  ];
+
+  /// 检测文本是否包含地图相关关键词
+  bool _isMapRelated(String text) {
+    final lower = text.toLowerCase();
+    return _mapKeywords.any((kw) => lower.contains(kw));
+  }
+
+  /// 打开高德地图（手机端优先App，桌面端跳转网页）
+  Future<void> _openAmap() async {
+    final uriAndroid = Uri.parse(
+      'androidamap://openFeature?featureName=MapShow',
+    );
+    final uriIos = Uri.parse('iosamap://');
+    final uriWeb = Uri.parse('https://ditu.amap.com/');
+
+    try {
+      if (Platform.isAndroid) {
+        if (await canLaunchUrl(uriAndroid)) {
+          await launchUrl(uriAndroid, mode: LaunchMode.externalApplication);
+          return;
+        }
+      } else if (Platform.isIOS) {
+        if (await canLaunchUrl(uriIos)) {
+          await launchUrl(uriIos, mode: LaunchMode.externalApplication);
+          return;
+        }
+      }
+      // 回退到网页版
+      await launchUrl(uriWeb, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      // 如果App跳转失败，尝试网页版
+      try {
+        await launchUrl(uriWeb, mode: LaunchMode.externalApplication);
+      } catch (e2) {
+        debugPrint("打开高德地图失败: $e2");
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("无法打开高德地图，请手动访问 ditu.amap.com")),
+          );
+        }
+      }
+    }
+  }
+
   void resetChat() {
     setState(() {
+      _isMapQuery = false;
       _messages.clear();
       _messages.add({"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
     });
@@ -322,6 +397,7 @@ class _HomeContentState extends State<HomeContent> {
     }
 
     setState(() {
+      _isMapQuery = false;
       _messages.clear();
       for (var msg in historyMessages) {
         if (msg is Map) {
@@ -353,6 +429,9 @@ class _HomeContentState extends State<HomeContent> {
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
+    // 检测是否涉及地图/位置相关查询
+    final queryIsMapRelated = _isMapRelated(text);
+
     // 如果是第一条用户消息，生成摘要并更新 AppBar
     bool isFirstMessage = _messages.length <= 1; // 只有一条欢迎语或为空
     if (isFirstMessage && widget.onSummaryUpdate != null) {
@@ -361,6 +440,7 @@ class _HomeContentState extends State<HomeContent> {
     }
 
     setState(() {
+      _isMapQuery = queryIsMapRelated;
       _messages.add({"text": text, "isUser": true});
     });
     _controller.clear();
@@ -422,15 +502,19 @@ class _HomeContentState extends State<HomeContent> {
             itemBuilder: (context, index) {
               final msg = _messages[index];
               final isUser = msg["isUser"] as bool;
+              // 是否是最后一个AI消息（当前正在渲染或刚完成的回复）
+              final isLastAiMsg = !isUser && index == _messages.length - 1;
               return Align(
                 alignment: isUser
                     ? Alignment.centerRight
                     : Alignment.centerLeft,
                 child: Container(
                   margin: const EdgeInsets.symmetric(vertical: 8),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 10,
+                  padding: const EdgeInsets.only(
+                    left: 16,
+                    right: 16,
+                    top: 10,
+                    bottom: 6,
                   ),
                   constraints: BoxConstraints(
                     maxWidth: MediaQuery.of(context).size.width * 0.7,
@@ -446,18 +530,54 @@ class _HomeContentState extends State<HomeContent> {
                       bottomRight: Radius.circular(isUser ? 0 : 16),
                     ),
                   ),
-                  child: MarkdownBody(
-                    data: msg["text"],
-                    selectable: true,
-                    styleSheet: MarkdownStyleSheet(
-                      p: TextStyle(
-                        color: isUser ? Colors.white : Colors.black87,
-                        fontSize: 16,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      MarkdownBody(
+                        data: msg["text"],
+                        selectable: true,
+                        styleSheet: MarkdownStyleSheet(
+                          p: TextStyle(
+                            color: isUser ? Colors.white : Colors.black87,
+                            fontSize: 16,
+                          ),
+                          listBullet: TextStyle(
+                            color: isUser ? Colors.white70 : Colors.black54,
+                          ),
+                        ),
                       ),
-                      listBullet: TextStyle(
-                        color: isUser ? Colors.white70 : Colors.black54,
-                      ),
-                    ),
+                      // 地图跳转按钮：整合在AI回复气泡底部
+                      if (isLastAiMsg && _isMapQuery)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _openAmap,
+                              icon: const Icon(Icons.map, size: 16),
+                              label: const Text(
+                                "在地图中查看",
+                                style: TextStyle(fontSize: 13),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFFF6A00),
+                                side: const BorderSide(
+                                  color: Color(0xFFFF6A00),
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 6,
+                                ),
+                                minimumSize: const Size(0, 32),
+                                visualDensity: VisualDensity.compact,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               );

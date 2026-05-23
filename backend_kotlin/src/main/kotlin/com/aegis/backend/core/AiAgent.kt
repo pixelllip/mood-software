@@ -27,16 +27,14 @@ class AiAgent {
     private val _chatting = AtomicBoolean(false)
 
     companion object {
-        // ⚠️ 根据 TODO.md 要求，所有用到模型的地方都使用 qwen3.5-flash
-        private const val MODEL = "qwen3.5-flash"
-        private const val BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        private const val CHAT_URL = "$BASE_URL/chat/completions"
+        // 从 config.json 动态读取（兼容旧版硬编码）
+        private val MODEL: String by lazy { EnvConfig.activeModel }
+        private val BASE_URL: String by lazy { EnvConfig.activeBaseUrl }
+        private val CHAT_URL: String by lazy { "$BASE_URL/chat/completions" }
     }
 
     private fun getApiKey(): String {
-        return EnvConfig.openaiApiKey.ifBlank {
-            EnvConfig.dashscopeApiKey
-        }
+        return EnvConfig.activeApiKey
     }
 
     /**
@@ -218,10 +216,10 @@ class AiAgent {
     private fun buildMessageList(): MutableList<Map<String, Any>> {
         val systemPrompt = "你是一个集成了一系列本地和线上工具的超级助理。你的名字是星火学伴 AI。\n" +
                 "【核心规则】：\n" +
-                "1. 当用户询问天气、路况、搜索信息、识别图片、生成图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n" +
+                "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n" +
                 "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n" +
                 "3. 你的回答应当简洁、友好且有用。\n" +
-                "【当前可用工具】：get_weather, get_traffic, text_to_image, qwen_websearch, image_recognition"
+                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition"
 
         val messages = mutableListOf<Map<String, Any>>(
             mapOf("role" to "system", "content" to systemPrompt)
@@ -331,6 +329,24 @@ class AiAgent {
                         put("name", JSONObject().apply {
                             put("type", "string")
                             put("description", "学生姓名，支持模糊搜索")
+                        })
+                    })
+                })
+            })
+        })
+
+        // locate_ip
+        toolsArray.put(JSONObject().apply {
+            put("type", "function")
+            put("function", JSONObject().apply {
+                put("name", "locate_ip")
+                put("description", "根据IP地址获取地理位置信息（基于高德地图API）")
+                put("parameters", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("ip", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "要查询的IP地址，不传则自动查询当前设备公网IP所在的位置")
                         })
                     })
                 })
@@ -523,6 +539,10 @@ class AiAgent {
                     val query = args.optString("query", "")
                     tool.qwenWebsearch(query)
                 }
+                "locate_ip" -> {
+                    val ip = args.optString("ip", "")
+                    tool.locateIp(ip)?.toString() ?: "获取IP定位失败"
+                }
                 "query_score" -> {
                     val studentId = args.optString("student_id", args.optString("studentId", ""))
                     val name = args.optString("name", "")
@@ -549,7 +569,6 @@ class AiAgent {
                     val targetDate = args.optString("target_date", args.optString("targetDate", ""))
                     tool.loadBacklog(backlog, targetDate).toString()
                 }
-                "text_to_image" -> "文本生成图片功能需要在 Python 环境运行 Stable Diffusion"
                 "image_recognition" -> "图像识别功能需要使用百度 API，当前 Kotlin 后端暂未实现"
                 else -> "未知工具: $name"
             }
