@@ -195,10 +195,30 @@ Future<bool> startBackend(int port) async {
 /// Windows 上启动 Kotlin 后端（优先使用 JAR，否则 Gradle 编译+运行）
 Future<bool> _startBackendWindows(int port) async {
   try {
+    // 查找 JAR 的优先级：
+    // 1. 可执行文件同目录下的 backend/ai_agent_backend.jar（发布版）
+    // 2. 项目开发目录下的 backend_kotlin/build/libs/ai_agent_backend.jar（开发版）
+    String jarPath = '';
     String rootDir = Directory.current.path;
-    String jarPath = File(
-      '$rootDir/backend_kotlin/build/libs/ai_agent_backend.jar',
-    ).path;
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+
+    // 情况1：发布版 — JAR 在 exe 旁边
+    final releaseJar = File('$exeDir/backend/ai_agent_backend.jar');
+    if (await releaseJar.exists()) {
+      jarPath = releaseJar.path;
+      debugPrint("--- 使用发布版 JAR: $jarPath ---");
+    }
+
+    // 情况2：开发版 — 项目中的构建产物
+    if (jarPath.isEmpty) {
+      final devJar = File(
+        '$rootDir/backend_kotlin/build/libs/ai_agent_backend.jar',
+      );
+      if (await devJar.exists()) {
+        jarPath = devJar.path;
+        debugPrint("--- 使用开发版 JAR: $jarPath ---");
+      }
+    }
     String gradlewPath = File('$rootDir/backend_kotlin/gradlew.bat').path;
 
     String launchCmd;
@@ -451,8 +471,9 @@ Future<Map<String, Map<String, dynamic>>> loadBacklogForDate({
     final files = await backlogDir.list().toList();
     for (final entity in files) {
       if (entity is! File) continue;
-      if (!entity.path.endsWith('.json') || entity.path.endsWith('.meta.json'))
+      if (!entity.path.endsWith('.json') || entity.path.endsWith('.meta.json')) {
         continue;
+      }
 
       final filename = entity.uri.pathSegments.last;
 

@@ -126,6 +126,7 @@ class _WelcomePageState extends State<WelcomePage> {
   }
 
   Future<void> _fetchModels(int index) async {
+    if (!mounted) return;
     final item = _aiConfigs[index];
     final baseUrl = item.baseUrlController.text.trim();
     final apiKey = item.apiKeyController.text.trim();
@@ -144,6 +145,7 @@ class _WelcomePageState extends State<WelcomePage> {
       _selectedModel = null;
     });
 
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final modelsUrl = baseUrl.endsWith('/')
           ? '${baseUrl}models'
@@ -181,14 +183,14 @@ class _WelcomePageState extends State<WelcomePage> {
         });
 
         if (models.isEmpty && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             const SnackBar(content: Text("未获取到模型列表，请检查 Base URL 和 API Key")),
           );
         }
       } else {
         setState(() => _isFetchingModels = false);
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger.showSnackBar(
             SnackBar(content: Text("请求失败: ${response.statusCode}")),
           );
         }
@@ -196,14 +198,13 @@ class _WelcomePageState extends State<WelcomePage> {
     } catch (e) {
       setState(() => _isFetchingModels = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("网络错误: $e")));
+        messenger.showSnackBar(SnackBar(content: Text("网络错误: $e")));
       }
     }
   }
 
   void _completeSetup() async {
+    if (!mounted) return;
     // 检查是否有至少一个 AI 配置
     if (_aiConfigs.isEmpty) {
       ScaffoldMessenger.of(
@@ -240,6 +241,7 @@ class _WelcomePageState extends State<WelcomePage> {
     final portStr = _portController.text.trim();
     final port = int.tryParse(portStr) ?? 8080;
 
+    final navigator = Navigator.of(context);
     await _saveToEnv();
 
     final enabledConfig = _aiConfigs[_selectedAiIndex];
@@ -258,7 +260,7 @@ class _WelcomePageState extends State<WelcomePage> {
       );
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
+      navigator.pushReplacement(
         MaterialPageRoute(
           builder: (context) => MyHomePage(
             dio: dio,
@@ -283,7 +285,7 @@ class _WelcomePageState extends State<WelcomePage> {
       );
 
       if (!mounted) return;
-      Navigator.of(context).pushReplacement(
+      navigator.pushReplacement(
         MaterialPageRoute(builder: (context) => MyHomePage(dio: dio)),
       );
     }
@@ -396,10 +398,29 @@ class _WelcomePageState extends State<WelcomePage> {
           style: TextStyle(fontSize: 13, color: Colors.grey),
         ),
         const SizedBox(height: 12),
-        ...List.generate(_aiConfigs.length, (index) {
-          final isSelected = _selectedAiIndex == index;
-          return _buildAiConfigCard(index, isSelected);
-        }),
+        RadioGroup<int>(
+          groupValue: _selectedAiIndex,
+          onChanged: (v) {
+            if (v == null) return;
+            setState(() {
+              _selectedAiIndex = v;
+              _fetchedModels = [];
+              if (v >= 0 && v < _aiConfigs.length) {
+                _selectedModel = _aiConfigs[v].model.isNotEmpty
+                    ? _aiConfigs[v].model
+                    : null;
+              }
+            });
+          },
+          child: Column(
+            children: [
+              ...List.generate(_aiConfigs.length, (index) {
+                final isSelected = _selectedAiIndex == index;
+                return _buildAiConfigCard(index, isSelected);
+              }),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           icon: const Icon(Icons.add),
@@ -428,19 +449,7 @@ class _WelcomePageState extends State<WelcomePage> {
           children: [
             Row(
               children: [
-                Radio<int>(
-                  value: index,
-                  groupValue: _selectedAiIndex,
-                  onChanged: (v) {
-                    setState(() {
-                      _selectedAiIndex = v!;
-                      _fetchedModels = [];
-                      _selectedModel = item.model.isNotEmpty
-                          ? item.model
-                          : null;
-                    });
-                  },
-                ),
+                Radio<int>(value: index),
                 Expanded(
                   child: Text(
                     item.nameController.text.isNotEmpty
@@ -651,6 +660,9 @@ class _WelcomePageState extends State<WelcomePage> {
 
   /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
   Future<void> _onPickFolder() async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     try {
       final result = await FilePicker.platform.getDirectoryPath(
         dialogTitle: "选择数据存储文件夹",
@@ -661,9 +673,10 @@ class _WelcomePageState extends State<WelcomePage> {
         // Android：检查 MANAGE_EXTERNAL_STORAGE 权限
         final hasPermission = await checkStoragePermission();
         if (!hasPermission) {
+          if (!mounted) return;
           // 未授权 → 弹出提示并跳转系统设置
           final goToSettings = await showDialog<bool>(
-            context: context,
+            context: navigator.context,
             builder: (ctx) => AlertDialog(
               title: const Text("需要存储权限"),
               content: const Text(
@@ -689,7 +702,7 @@ class _WelcomePageState extends State<WelcomePage> {
             await Future.delayed(const Duration(seconds: 1));
             final granted = await checkStoragePermission();
             if (!granted && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              messenger.showSnackBar(
                 const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
               );
               return;
@@ -697,9 +710,9 @@ class _WelcomePageState extends State<WelcomePage> {
           } else {
             // 用户拒绝授权
             if (mounted) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
+              messenger.showSnackBar(
+                const SnackBar(content: Text("将使用软件自有目录存储数据")),
+              );
             }
             return;
           }
@@ -711,16 +724,12 @@ class _WelcomePageState extends State<WelcomePage> {
         _pickedBasePath = result;
       });
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+        messenger.showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
       }
     } catch (e) {
       debugPrint("选择文件夹失败: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+        messenger.showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
       }
     }
   }
@@ -747,15 +756,15 @@ class _WelcomePageState extends State<WelcomePage> {
           icon: const Icon(Icons.open_in_new, color: Colors.blue),
           tooltip: "获取密钥",
           onPressed: () async {
+            if (!mounted) return;
             final uri = Uri.parse(url);
+            final messenger = ScaffoldMessenger.of(context);
             final launched = await launchUrl(
               uri,
               mode: LaunchMode.externalApplication,
             );
             if (!launched && mounted) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
+              messenger.showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
             }
           },
         ),

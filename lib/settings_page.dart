@@ -138,6 +138,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _fetchModels(int index) async {
+    if (!mounted) return;
     final item = _aiConfigs[index];
     final baseUrl = item.baseUrlController.text.trim();
     final apiKey = item.apiKeyController.text.trim();
@@ -159,6 +160,7 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     });
 
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final modelsUrl = baseUrl.endsWith('/')
           ? '${baseUrl}models'
@@ -191,9 +193,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _fetchingIndex = -1;
         });
         if (models.isEmpty && mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text("未获取到模型列表")));
+          messenger.showSnackBar(const SnackBar(content: Text("未获取到模型列表")));
         }
       } else {
         setState(() {
@@ -207,15 +207,16 @@ class _SettingsPageState extends State<SettingsPage> {
         _fetchingIndex = -1;
       });
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("网络错误: $e")));
+        messenger.showSnackBar(SnackBar(content: Text("网络错误: $e")));
       }
     }
   }
 
   /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
   Future<void> _onPickFolder() async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     try {
       final result = await FilePicker.platform.getDirectoryPath(
         dialogTitle: "选择数据存储文件夹",
@@ -225,8 +226,9 @@ class _SettingsPageState extends State<SettingsPage> {
       if (Platform.isAndroid) {
         final hasPermission = await checkStoragePermission();
         if (!hasPermission) {
+          if (!mounted) return;
           final goToSettings = await showDialog<bool>(
-            context: context,
+            context: navigator.context,
             builder: (ctx) => AlertDialog(
               title: const Text("需要存储权限"),
               content: const Text(
@@ -251,16 +253,14 @@ class _SettingsPageState extends State<SettingsPage> {
             await Future.delayed(const Duration(seconds: 1));
             final granted = await checkStoragePermission();
             if (!granted && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
+              messenger.showSnackBar(
                 const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
               );
               return;
             }
           } else {
             if (mounted) {
-              ScaffoldMessenger.of(
-                context,
-              ).showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
+              messenger.showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
             }
             return;
           }
@@ -269,21 +269,19 @@ class _SettingsPageState extends State<SettingsPage> {
 
       _basePathController.text = result;
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+        messenger.showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
       }
     } catch (e) {
       debugPrint("选择文件夹失败: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+        messenger.showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
       }
     }
   }
 
   Future<void> _saveSettings() async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
     try {
       final directory = await getProjectDirectory();
       final basePath = _basePathController.text.trim();
@@ -344,15 +342,11 @@ class _SettingsPageState extends State<SettingsPage> {
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("设置已保存并应用")));
+      messenger.showSnackBar(const SnackBar(content: Text("设置已保存并应用")));
       setState(() => _isEditing = false);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("保存失败: $e")));
+      messenger.showSnackBar(SnackBar(content: Text("保存失败: $e")));
     }
   }
 
@@ -417,10 +411,30 @@ class _SettingsPageState extends State<SettingsPage> {
           style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
         const SizedBox(height: 8),
-        ...List.generate(_aiConfigs.length, (index) {
-          final isSelected = _selectedAiIndex == index;
-          return _buildAiConfigCard(index, isSelected);
-        }),
+        RadioGroup<int>(
+          groupValue: _selectedAiIndex,
+          onChanged: _isEditing
+              ? (v) {
+                  if (v == null) return;
+                  setState(() {
+                    _selectedAiIndex = v;
+                    if (v >= 0 && v < _aiConfigs.length) {
+                      _selectedModel = _aiConfigs[v].model.isNotEmpty
+                          ? _aiConfigs[v].model
+                          : null;
+                    }
+                  });
+                }
+              : (_) {},
+          child: Column(
+            children: [
+              ...List.generate(_aiConfigs.length, (index) {
+                final isSelected = _selectedAiIndex == index;
+                return _buildAiConfigCard(index, isSelected);
+              }),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
         OutlinedButton.icon(
           icon: const Icon(Icons.add, size: 18),
@@ -450,20 +464,7 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             Row(
               children: [
-                Radio<int>(
-                  value: index,
-                  groupValue: _selectedAiIndex,
-                  onChanged: _isEditing
-                      ? (v) {
-                          setState(() {
-                            _selectedAiIndex = v!;
-                            _selectedModel = item.model.isNotEmpty
-                                ? item.model
-                                : null;
-                          });
-                        }
-                      : null,
-                ),
+                Radio<int>(value: index),
                 Expanded(
                   child: Text(
                     item.nameController.text.isNotEmpty
@@ -565,7 +566,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 height: 150,
                 child: ListView.separated(
                   itemCount: _filteredModels.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  separatorBuilder: (_, _) => const Divider(height: 1),
                   itemBuilder: (context, i) {
                     final model = _filteredModels[i];
                     final isModelSelected = _selectedModel == model;
