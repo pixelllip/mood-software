@@ -62,7 +62,8 @@ function Build-Windows {
     }
 
     # Copy JAR to output
-    $outputDir = "$rootDir\build\windows\runner\Release\backend"
+    # 新版本 Flutter 输出在 build\windows\x64\runner\Release\
+    $outputDir = "$rootDir\build\windows\x64\runner\Release\backend"
     if (-not (Test-Path $outputDir)) {
         New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
     }
@@ -70,8 +71,8 @@ function Build-Windows {
 
     Write-Host "  [OK] JAR copied to: $outputDir\ai_agent_backend.jar" -ForegroundColor Green
     Write-Host ""
-    Write-Host "Output: $rootDir\build\windows\runner\Release\" -ForegroundColor Cyan
-    Write-Host "  Exe: ai_agent.exe" -ForegroundColor Cyan
+    Write-Host "Output: $rootDir\build\windows\x64\runner\Release\" -ForegroundColor Cyan
+    Write-Host "  Exe: 星火学伴.exe" -ForegroundColor Cyan
     Write-Host "  JAR: backend\ai_agent_backend.jar" -ForegroundColor Cyan
 }
 

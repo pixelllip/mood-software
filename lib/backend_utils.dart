@@ -202,6 +202,9 @@ Future<bool> _startBackendWindows(int port) async {
     String rootDir = Directory.current.path;
     final exeDir = File(Platform.resolvedExecutable).parent.path;
 
+    debugPrint("--- [_startBackendWindows] exeDir: $exeDir ---");
+    debugPrint("--- [_startBackendWindows] rootDir: $rootDir ---");
+
     // 情况1：发布版 — JAR 在 exe 旁边
     final releaseJar = File('$exeDir/backend/ai_agent_backend.jar');
     if (await releaseJar.exists()) {
@@ -209,16 +212,28 @@ Future<bool> _startBackendWindows(int port) async {
       debugPrint("--- 使用发布版 JAR: $jarPath ---");
     }
 
-    // 情况2：开发版 — 项目中的构建产物
+    // 情况1b：发布版 — 检查 exe 父级目录（兼容项目根运行场景）
     if (jarPath.isEmpty) {
-      final devJar = File(
+      final altJar = File(
         '$rootDir/backend_kotlin/build/libs/ai_agent_backend.jar',
       );
-      if (await devJar.exists()) {
-        jarPath = devJar.path;
-        debugPrint("--- 使用开发版 JAR: $jarPath ---");
+      if (await altJar.exists()) {
+        jarPath = altJar.path;
+        debugPrint("--- 使用开发版 JAR(备选): $jarPath ---");
       }
     }
+
+    // 情况1c：发布版 — 兼容旧版 build\windows\runner\Release\backend\
+    if (jarPath.isEmpty) {
+      final oldReleaseJar = File(
+        '$exeDir/Release/backend/ai_agent_backend.jar',
+      );
+      if (await oldReleaseJar.exists()) {
+        jarPath = oldReleaseJar.path;
+        debugPrint("--- 使用旧发布版 JAR: $jarPath ---");
+      }
+    }
+
     String gradlewPath = File('$rootDir/backend_kotlin/gradlew.bat').path;
 
     String launchCmd;
@@ -249,6 +264,8 @@ Future<bool> _startBackendWindows(int port) async {
       }
     } else {
       debugPrint("❌ 未找到后端构建文件");
+      debugPrint("💡 提示: 确保 exe 旁有 backend/ai_agent_backend.jar");
+      debugPrint("   或使用 build_package.ps1 构建（会自动打包 JAR）");
       return false;
     }
 
@@ -471,7 +488,8 @@ Future<Map<String, Map<String, dynamic>>> loadBacklogForDate({
     final files = await backlogDir.list().toList();
     for (final entity in files) {
       if (entity is! File) continue;
-      if (!entity.path.endsWith('.json') || entity.path.endsWith('.meta.json')) {
+      if (!entity.path.endsWith('.json') ||
+          entity.path.endsWith('.meta.json')) {
         continue;
       }
 

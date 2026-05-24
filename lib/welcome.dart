@@ -272,7 +272,23 @@ class _WelcomePageState extends State<WelcomePage> {
         ),
       );
     } else {
-      await startBackend(port);
+      final backendReady = await startBackend(port);
+
+      if (!backendReady) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              "后端启动失败，请检查："
+              "① config.json 中 SERVER_PORT 配置\n"
+              "② Java 环境是否安装并配置了 PATH\n"
+              "③ exe 同目录下是否存在 backend/ai_agent_backend.jar",
+            ),
+            duration: Duration(seconds: 8),
+          ),
+        );
+        return;
+      }
 
       final baseUrl = "http://127.0.0.1:$port";
       final dio = Dio(
