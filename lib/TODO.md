@@ -7,6 +7,7 @@ cd backend_kotlin
 .\build_package.ps1 -Target windows
 
 打包好的文件会在：
+
 build\windows\x64\runner\Release\
 ├── 星火学伴.exe
 └── backend\ai_agent_backend.jar
@@ -15,6 +16,7 @@ build\windows\x64\runner\Release\
 .\build_package.ps1 -Target android
 
 打包好的文件会在：
+
 build\app\outputs\flutter-apk\
 └── app-release.apk
 
@@ -22,6 +24,7 @@ build\app\outputs\flutter-apk\
 .\build_package.ps1 -Target linux
 
 打包好的文件会在：
+
 build\linux\x64\release\bundle\
 ├── 星火学伴  (ELF 二进制)
 └── backend/ai_agent_backend.jar
@@ -30,6 +33,7 @@ build\linux\x64\release\bundle\
 .\build_package.ps1 -Target ios
 
 打包好的文件会在：
+
 build\macos\Build\Products\Release\
 └── 星火学伴.app
     └── Contents/Resources/backend/ai_agent_backend.jar  (内嵌在 .app 包中)
@@ -38,6 +42,7 @@ build\macos\Build\Products\Release\
 .\build_package.ps1 -Target macos
 
 打包好的文件会在：
+
 build\ios\iphoneos\
 └── Runner.app
 
