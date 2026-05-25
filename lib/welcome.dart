@@ -133,9 +133,7 @@ class _WelcomePageState extends State<WelcomePage> {
 
     if (baseUrl.isEmpty || apiKey.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请先填写 Base URL 和 API Key")));
+      showTopSnackBar(context, "请先填写 Base URL 和 API Key");
       return;
     }
 
@@ -145,7 +143,6 @@ class _WelcomePageState extends State<WelcomePage> {
       _selectedModel = null;
     });
 
-    final messenger = ScaffoldMessenger.of(context);
     try {
       final modelsUrl = baseUrl.endsWith('/')
           ? '${baseUrl}models'
@@ -183,22 +180,18 @@ class _WelcomePageState extends State<WelcomePage> {
         });
 
         if (models.isEmpty && mounted) {
-          messenger.showSnackBar(
-            const SnackBar(content: Text("未获取到模型列表，请检查 Base URL 和 API Key")),
-          );
+          showTopSnackBar(context, "未获取到模型列表，请检查 Base URL 和 API Key");
         }
       } else {
         setState(() => _isFetchingModels = false);
         if (mounted) {
-          messenger.showSnackBar(
-            SnackBar(content: Text("请求失败: ${response.statusCode}")),
-          );
+          showTopSnackBar(context, "请求失败: ${response.statusCode}");
         }
       }
     } catch (e) {
       setState(() => _isFetchingModels = false);
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("网络错误: $e")));
+        showTopSnackBar(context, "网络错误: $e");
       }
     }
   }
@@ -207,17 +200,13 @@ class _WelcomePageState extends State<WelcomePage> {
     if (!mounted) return;
     // 检查是否有至少一个 AI 配置
     if (_aiConfigs.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请至少添加一个 AI API 配置")));
+      showTopSnackBar(context, "请至少添加一个 AI API 配置");
       return;
     }
 
     // 检查选中的配置是否完整
     if (_selectedAiIndex < 0 || _selectedAiIndex >= _aiConfigs.length) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请选择一个 AI 配置")));
+      showTopSnackBar(context, "请选择一个 AI 配置");
       return;
     }
 
@@ -225,16 +214,12 @@ class _WelcomePageState extends State<WelcomePage> {
     if (selected.nameController.text.trim().isEmpty ||
         selected.baseUrlController.text.trim().isEmpty ||
         selected.apiKeyController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("请填写完整的 AI 配置信息（名称、Base URL、API Key）")),
-      );
+      showTopSnackBar(context, "请填写完整的 AI 配置信息（名称、Base URL、API Key）");
       return;
     }
 
     if (_selectedModel == null || _selectedModel!.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请刷新并选择一个模型")));
+      showTopSnackBar(context, "请刷新并选择一个模型");
       return;
     }
 
@@ -276,16 +261,12 @@ class _WelcomePageState extends State<WelcomePage> {
 
       if (!backendReady) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "后端启动失败，请检查："
-              "① config.json 中 SERVER_PORT 配置\n"
-              "② Java 环境是否安装并配置了 PATH\n"
-              "③ exe 同目录下是否存在 backend/ai_agent_backend.jar",
-            ),
-            duration: Duration(seconds: 8),
-          ),
+        showTopSnackBar(
+          context,
+          "后端启动失败，请检查："
+          "① config.json 中 SERVER_PORT 配置\n"
+          "② Java 环境是否安装并配置了 PATH\n"
+          "③ exe 同目录下是否存在 backend/ai_agent_backend.jar",
         );
         return;
       }
@@ -677,7 +658,6 @@ class _WelcomePageState extends State<WelcomePage> {
   /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
   Future<void> _onPickFolder() async {
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
       final result = await FilePicker.platform.getDirectoryPath(
@@ -718,17 +698,13 @@ class _WelcomePageState extends State<WelcomePage> {
             await Future.delayed(const Duration(seconds: 1));
             final granted = await checkStoragePermission();
             if (!granted && mounted) {
-              messenger.showSnackBar(
-                const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
-              );
+              showTopSnackBar(context, "权限未授予，将使用软件自有目录存储数据");
               return;
             }
           } else {
             // 用户拒绝授权
             if (mounted) {
-              messenger.showSnackBar(
-                const SnackBar(content: Text("将使用软件自有目录存储数据")),
-              );
+              showTopSnackBar(context, "将使用软件自有目录存储数据");
             }
             return;
           }
@@ -740,12 +716,12 @@ class _WelcomePageState extends State<WelcomePage> {
         _pickedBasePath = result;
       });
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+        showTopSnackBar(context, "已选择文件夹: $result");
       }
     } catch (e) {
       debugPrint("选择文件夹失败: $e");
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+        showTopSnackBar(context, "选择文件夹失败: $e");
       }
     }
   }
@@ -774,13 +750,12 @@ class _WelcomePageState extends State<WelcomePage> {
           onPressed: () async {
             if (!mounted) return;
             final uri = Uri.parse(url);
-            final messenger = ScaffoldMessenger.of(context);
             final launched = await launchUrl(
               uri,
               mode: LaunchMode.externalApplication,
             );
             if (!launched && mounted) {
-              messenger.showSnackBar(SnackBar(content: Text("无法打开链接: $url")));
+              showTopSnackBar(context, "无法打开链接: $url");
             }
           },
         ),

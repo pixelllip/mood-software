@@ -9,7 +9,6 @@ import 'package:ai_agent/settings_page.dart';
 import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
-import 'package:ai_agent/schedule_detail_page.dart';
 import 'package:ai_agent/local_backend.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -97,11 +96,7 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void onItemTapped(int index) {
-    _pageController.animateToPage(
-      index,
-      duration: const Duration(milliseconds: 300),
-      curve: Curves.easeInOut,
-    );
+    _pageController.jumpToPage(index);
     setState(() {
       selectedIndex = index;
     });
@@ -239,7 +234,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isMobile = MediaQuery.of(context).size.width < 700;
+    final bool isMobile = MediaQuery.of(context).size.width < 450;
 
     return Scaffold(
       appBar: AppBar(
@@ -250,7 +245,7 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
-          if (selectedIndex == 0) ...[
+          if (selectedIndex == 0 && _chatTabIndex == 0) ...[
             IconButton(
               icon: const Icon(Icons.add_comment),
               tooltip: "新建对话",
@@ -283,11 +278,110 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
       drawer: isMobile ? buildDrawer() : null,
       drawerEdgeDragWidth: isMobile
-          ? MediaQuery.of(context).size.width * 0.15
+          ? MediaQuery.of(context).size.width * 0.25
           : null,
 
-      body: isMobile
-          ? PageView(
+      body: Row(
+        children: [
+          // 桌面侧栏（移动端用 AnimatedSize 平滑收起/展开）
+          AnimatedSize(
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+            alignment: Alignment.centerLeft,
+            child: isMobile
+                ? const SizedBox.shrink()
+                : Container(
+                    width: 80,
+                    decoration: BoxDecoration(
+                      border: Border(
+                        right: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Expanded(child: buildRail()),
+                        // 主题切换
+                        SizedBox(
+                          height: 56,
+                          child: InkWell(
+                            onTap: () {
+                              final next =
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? ThemeMode.light
+                                  : ThemeMode.dark;
+                              themeModeNotifier.value = next;
+                              _saveThemeMode(next);
+                            },
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Theme.of(context).brightness ==
+                                          Brightness.dark
+                                      ? Icons.light_mode
+                                      : Icons.dark_mode,
+                                  size: 24,
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "主题",
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        // 设置
+                        SizedBox(
+                          height: 48,
+                          child: InkWell(
+                            onTap: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => SettingsPage(
+                                    dio: widget.dio,
+                                    userName: userName,
+                                    userID: userID,
+                                  ),
+                                ),
+                              );
+                              _loadUserInfo();
+                            },
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.settings, size: 24),
+                                const SizedBox(height: 4),
+                                Text(
+                                  "设置",
+                                  style: Theme.of(context).textTheme.labelSmall
+                                      ?.copyWith(
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.onSurface,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                    ),
+                  ),
+          ),
+          Expanded(
+            child: PageView(
+              physics: const NeverScrollableScrollPhysics(),
               controller: _pageController,
               onPageChanged: (index) {
                 setState(() {
@@ -325,127 +419,10 @@ class _MyHomePageState extends State<MyHomePage> {
                   directModel: widget.directModel,
                 ),
               ],
-            )
-          : Row(
-              children: [
-                // 桌面侧栏：导航 + 底部按钮
-                SizedBox(
-                  width: 80,
-                  child: Column(
-                    children: [
-                      Expanded(child: buildRail()),
-                      const Divider(height: 1),
-                      // 主题切换
-                      SizedBox(
-                        height: 56,
-                        child: InkWell(
-                          onTap: () {
-                            final next = Theme.of(context).brightness == Brightness.dark
-                                ? ThemeMode.light
-                                : ThemeMode.dark;
-                            themeModeNotifier.value = next;
-                            _saveThemeMode(next);
-                          },
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Theme.of(context).brightness == Brightness.dark
-                                    ? Icons.light_mode
-                                    : Icons.dark_mode,
-                                size: 24,
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                "主题",
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      // 设置
-                      SizedBox(
-                        height: 56,
-                        child: InkWell(
-                          onTap: () async {
-                            await Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => SettingsPage(
-                                  dio: widget.dio,
-                                  userName: userName,
-                                  userID: userID,
-                                ),
-                              ),
-                            );
-                            _loadUserInfo();
-                          },
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              const Icon(Icons.settings, size: 24),
-                              const SizedBox(height: 4),
-                              Text(
-                                "设置",
-                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  color: Theme.of(context).colorScheme.onSurface,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                  ),
-                ),
-                const VerticalDivider(width: 1),
-                Expanded(
-                  child: PageView(
-                    controller: _pageController,
-                    onPageChanged: (index) {
-                      setState(() {
-                        selectedIndex = index;
-                      });
-                    },
-                    children: [
-                      HomeContent(
-                        key: _homeContentKey,
-                        dio: widget.dio,
-                        useDirectApi: widget.useDirectApi,
-                        directBaseUrl: widget.directBaseUrl,
-                        directApiKey: widget.directApiKey,
-                        directModel: widget.directModel,
-                        onSummaryUpdate: (summary) {
-                          setState(() {
-                            _currentChatSummary = summary;
-                          });
-                        },
-                        onChatTabChanged: (index) {
-                          setState(() {
-                            _chatTabIndex = index;
-                          });
-                        },
-                      ),
-                      ScorePage(dio: widget.dio),
-                      SchedulePage(
-                        dio: widget.dio,
-                        isActive: selectedIndex == 2,
-                        studentID: userID,
-                        studentName: userName,
-                        useDirectApi: widget.useDirectApi,
-                        directBaseUrl: widget.directBaseUrl,
-                        directApiKey: widget.directApiKey,
-                        directModel: widget.directModel,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
             ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -546,8 +523,10 @@ class _HomeContentState extends State<HomeContent>
       } catch (e2) {
         debugPrint("打开高德地图失败: $e2");
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("无法打开高德地图，请手动访问 ditu.amap.com")),
+          showTopSnackBar(
+            context,
+            "无法打开高德地图，请手动访问 ditu.amap.com",
+            bottomMargin: 142,
           );
         }
       }
@@ -731,7 +710,6 @@ class _HomeContentState extends State<HomeContent>
 
   /// AI聊天内部 Tab 控制器（0=聊天, 1=历史）
   late final TabController _chatTabController;
-  int get _chatTabIndex => _chatTabController.index;
 
   @override
   void initState() {
@@ -753,189 +731,266 @@ class _HomeContentState extends State<HomeContent>
           child: TabBarView(
             controller: _chatTabController,
             children: [
-              // 页面0：聊天消息列表
-              ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.all(16),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  final msg = _messages[index];
-                  final isUser = msg["isUser"] as bool;
-                  final isLastAiMsg = !isUser && index == _messages.length - 1;
-                  return Align(
-                    alignment: isUser
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(vertical: 8),
-                      padding: const EdgeInsets.only(
-                        left: 16,
-                        right: 16,
-                        top: 10,
-                        bottom: 6,
-                      ),
-                      constraints: BoxConstraints(
-                        maxWidth: MediaQuery.of(context).size.width * 0.7,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isUser
-                            ? Theme.of(context).primaryColor
-                            : (isDark
-                                  ? Colors.grey.shade800
-                                  : Colors.grey.shade200),
-                        borderRadius: BorderRadius.only(
-                          topLeft: const Radius.circular(16),
-                          topRight: const Radius.circular(16),
-                          bottomLeft: Radius.circular(isUser ? 16 : 0),
-                          bottomRight: Radius.circular(isUser ? 0 : 16),
+              // 页面0：聊天消息列表 + 输入框（都在 TabBarView 内部，随滑动自然过渡）
+              _KeepAliveWrapper(
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                          top: 16,
+                          bottom: 8,
                         ),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          MarkdownBody(
-                            data: msg["text"],
-                            selectable: true,
-                            styleSheet: MarkdownStyleSheet(
-                              p: TextStyle(
+                        itemCount: _messages.length,
+                        itemBuilder: (context, index) {
+                          final msg = _messages[index];
+                          final isUser = msg["isUser"] as bool;
+                          final isLastAiMsg =
+                              !isUser && index == _messages.length - 1;
+                          return Align(
+                            alignment: isUser
+                                ? Alignment.centerRight
+                                : Alignment.centerLeft,
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(vertical: 8),
+                              padding: const EdgeInsets.only(
+                                left: 16,
+                                right: 16,
+                                top: 10,
+                                bottom: 6,
+                              ),
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width * 0.7,
+                              ),
+                              decoration: BoxDecoration(
                                 color: isUser
-                                    ? Colors.white
+                                    ? Theme.of(context).primaryColor
                                     : (isDark
-                                          ? const Color(0xFFE0E0E0)
-                                          : Colors.black87),
-                                fontSize: 16,
-                              ),
-                              listBullet: TextStyle(
-                                color: isUser
-                                    ? Colors.white70
-                                    : (isDark
-                                          ? const Color(0xFF9E9E9E)
-                                          : Colors.black54),
-                              ),
-                              code: TextStyle(
-                                backgroundColor: isDark
-                                    ? const Color(0xFF1E1E1E)
-                                    : Colors.grey.shade100,
-                                color: isDark
-                                    ? const Color(0xFF6A9955)
-                                    : Colors.black87,
-                                fontSize: 14,
-                              ),
-                              codeblockDecoration: BoxDecoration(
-                                color: isDark
-                                    ? const Color(0xFF1E1E1E)
-                                    : Colors.grey.shade100,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              h1: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFFE0E0E0)
-                                    : Colors.black87,
-                              ),
-                              h2: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFFE0E0E0)
-                                    : Colors.black87,
-                              ),
-                              h3: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFFE0E0E0)
-                                    : Colors.black87,
-                              ),
-                              a: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFF64B5F6)
-                                    : Colors.blue,
-                              ),
-                              strong: TextStyle(
-                                color: isUser
-                                    ? Colors.white
-                                    : (isDark
-                                          ? const Color(0xFFE0E0E0)
-                                          : Colors.black87),
-                                fontWeight: FontWeight.bold,
-                              ),
-                              blockquote: TextStyle(
-                                color: isDark
-                                    ? const Color(0xFFBDBDBD)
-                                    : Colors.black54,
-                              ),
-                            ),
-                          ),
-                          if (isLastAiMsg && _isMapQuery)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 8),
-                              child: SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: _openAmap,
-                                  icon: const Icon(Icons.map, size: 16),
-                                  label: const Text(
-                                    "在地图中查看",
-                                    style: TextStyle(fontSize: 13),
-                                  ),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: const Color(0xFFFF6A00),
-                                    side: const BorderSide(
-                                      color: Color(0xFFFF6A00),
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 6,
-                                    ),
-                                    minimumSize: const Size(0, 32),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
+                                          ? Colors.grey.shade800
+                                          : Colors.grey.shade200),
+                                borderRadius: BorderRadius.only(
+                                  topLeft: const Radius.circular(16),
+                                  topRight: const Radius.circular(16),
+                                  bottomLeft: Radius.circular(isUser ? 16 : 0),
+                                  bottomRight: Radius.circular(isUser ? 0 : 16),
                                 ),
                               ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  MarkdownBody(
+                                    data: msg["text"],
+                                    selectable: true,
+                                    styleSheet: MarkdownStyleSheet(
+                                      p: TextStyle(
+                                        color: isUser
+                                            ? Colors.white
+                                            : (isDark
+                                                  ? const Color(0xFFE0E0E0)
+                                                  : Colors.black87),
+                                        fontSize: 16,
+                                      ),
+                                      listBullet: TextStyle(
+                                        color: isUser
+                                            ? Colors.white70
+                                            : (isDark
+                                                  ? const Color(0xFF9E9E9E)
+                                                  : Colors.black54),
+                                      ),
+                                      code: TextStyle(
+                                        backgroundColor: isDark
+                                            ? const Color(0xFF1E1E1E)
+                                            : Colors.grey.shade100,
+                                        color: isDark
+                                            ? const Color(0xFF6A9955)
+                                            : Colors.black87,
+                                        fontSize: 14,
+                                      ),
+                                      codeblockDecoration: BoxDecoration(
+                                        color: isDark
+                                            ? const Color(0xFF1E1E1E)
+                                            : Colors.grey.shade100,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      h1: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFFE0E0E0)
+                                            : Colors.black87,
+                                      ),
+                                      h2: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFFE0E0E0)
+                                            : Colors.black87,
+                                      ),
+                                      h3: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFFE0E0E0)
+                                            : Colors.black87,
+                                      ),
+                                      a: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFF64B5F6)
+                                            : Colors.blue,
+                                      ),
+                                      strong: TextStyle(
+                                        color: isUser
+                                            ? Colors.white
+                                            : (isDark
+                                                  ? const Color(0xFFE0E0E0)
+                                                  : Colors.black87),
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                      blockquote: TextStyle(
+                                        color: isDark
+                                            ? const Color(0xFFBDBDBD)
+                                            : Colors.black54,
+                                      ),
+                                    ),
+                                  ),
+                                  if (isLastAiMsg && _isMapQuery)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 8),
+                                      child: SizedBox(
+                                        width: double.infinity,
+                                        child: OutlinedButton.icon(
+                                          onPressed: _openAmap,
+                                          icon: const Icon(Icons.map, size: 16),
+                                          label: const Text(
+                                            "在地图中查看",
+                                            style: TextStyle(fontSize: 13),
+                                          ),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: const Color(
+                                              0xFFFF6A00,
+                                            ),
+                                            side: const BorderSide(
+                                              color: Color(0xFFFF6A00),
+                                            ),
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 6,
+                                            ),
+                                            minimumSize: const Size(0, 32),
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
                             ),
+                          );
+                        },
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).cardColor,
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black12,
+                            offset: const Offset(0, -1),
+                            blurRadius: 4,
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _controller,
+                              decoration: InputDecoration(
+                                hintText: "给AI发送消息...",
+                                // 1. 开启填充色，让输入框区域在深色背景下有一个微亮的底色
+                                filled: true,
+                                fillColor:
+                                    Theme.of(context).brightness ==
+                                        Brightness.dark
+                                    ? Colors.white.withValues(
+                                        alpha: 0.15,
+                                      ) // 深色模式下的微亮底色
+                                    : Colors.grey.shade100, // 浅色模式下的微暗底色
+                                // 2. 未选中时的边框（默认边框）
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(
+                                    12,
+                                  ), // 圆角大小
+                                  borderSide: BorderSide(
+                                    color:
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? Colors.white.withValues(
+                                            alpha: 0.15,
+                                          ) // 深色模式下的半透明白边框
+                                        : Colors.grey.shade300, // 浅色模式下的浅灰边框
+                                  ),
+                                ),
+
+                                // 3. 获取焦点（点击输入）时的边框
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: BorderSide(
+                                    color: Theme.of(
+                                      context,
+                                    ).primaryColor, // 激活时使用主题色
+                                    width: 1.5,
+                                  ),
+                                ),
+
+                                // 内边距，让文字离边框有一点距离，更好看
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 12,
+                                ),
+                              ),
+                              onSubmitted: (_) => _handleSend(),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          IconButton(
+                            icon: Icon(
+                              Icons.send,
+                              // 关键代码：深色模式下用白色（或高亮色），浅色模式下用原主题色
+                              color:
+                                  Theme.of(context).brightness ==
+                                      Brightness.dark
+                                  ? Colors.white
+                                  : Theme.of(context).primaryColor,
+                            ),
+                            onPressed: _handleSend,
+                          ),
                         ],
                       ),
                     ),
-                  );
-                },
+                  ],
+                ),
               ),
-              // 页面1：聊天历史（内嵌）
-              HistoryPage(dio: widget.dio),
+              // 页面1：聊天历史（内嵌，用 KeepAlive 包裹）
+              _KeepAliveWrapper(
+                child: HistoryPage(
+                  dio: widget.dio,
+                  onContinue: (messages, summary) {
+                    _chatTabController.animateTo(0);
+                    loadHistory(messages);
+                  },
+                ),
+              ),
             ],
           ),
         ),
-        // 输入框（仅在"聊天"标签显示）
-        if (_chatTabIndex == 0)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: BoxDecoration(
-              color: Theme.of(context).cardColor,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  offset: const Offset(0, -1),
-                  blurRadius: 4,
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: "给AI发送消息...",
-                      border: InputBorder.none,
-                    ),
-                    onSubmitted: (_) => _handleSend(),
-                  ),
-                ),
-                IconButton(
-                  icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
-                  onPressed: _handleSend,
-                ),
-              ],
-            ),
-          ),
         // 底部导航栏（TabBar 样式）："聊天" | "历史"
         Container(
           decoration: BoxDecoration(
@@ -1084,6 +1139,11 @@ class _ScorePageState extends State<ScorePage>
 
   Future<void> queryData() async {
     try {
+      // 检查：两项都未勾选
+      if (!_searchById && !_searchByName) {
+        throw "请至少勾选一种查找方式";
+      }
+
       // 仅获取已勾选项的输入内容
       final rawId = _searchById ? idController.text.trim() : '';
       final rawName = _searchByName ? nameController.text.trim() : '';
@@ -1096,21 +1156,6 @@ class _ScorePageState extends State<ScorePage>
       }
       if (_searchByName && !hasName) {
         throw "请输入姓名";
-      }
-
-      // 两个都未勾选 → 显示全部
-      if (!_searchById && !_searchByName) {
-        if (Platform.isAndroid) {
-          final allStudents = await LocalScoreService.listAllStudents();
-          if (!mounted) return;
-          if (allStudents.isEmpty) {
-            throw "暂无学生数据";
-          }
-          await _showStudentPicker(allStudents);
-          return;
-        } else {
-          throw "请勾选查找方式并输入内容";
-        }
       }
 
       if (Platform.isAndroid) {
@@ -1179,9 +1224,7 @@ class _ScorePageState extends State<ScorePage>
         errorMsg = e.toString();
       }
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(errorMsg)));
+        showTopSnackBar(context, errorMsg, bottomMargin: 82);
       }
     }
   }
@@ -1230,9 +1273,7 @@ class _ScorePageState extends State<ScorePage>
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("信息已成功添加到系统")));
+      showTopSnackBar(context, "信息已成功添加到系统", bottomMargin: 82);
 
       idController.clear();
       nameController.clear();
@@ -1245,9 +1286,7 @@ class _ScorePageState extends State<ScorePage>
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("提交失败: $e")));
+      showTopSnackBar(context, "提交失败: $e", bottomMargin: 82);
     }
   }
 
@@ -1256,9 +1295,7 @@ class _ScorePageState extends State<ScorePage>
     final rawId = idController.text.trim();
     final rawName = nameController.text.trim();
     if (rawId.isEmpty && rawName.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请输入学生ID或姓名")));
+      showTopSnackBar(context, "请输入学生ID或姓名", bottomMargin: 82);
       return;
     }
 
@@ -1304,9 +1341,7 @@ class _ScorePageState extends State<ScorePage>
     } catch (e) {
       if (!mounted) return;
       setState(() => _deletePreview = null);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("查询失败: $e")));
+      showTopSnackBar(context, "查询失败: $e", bottomMargin: 82);
     } finally {
       if (mounted) setState(() => _isQueryingDelete = false);
     }
@@ -1314,9 +1349,7 @@ class _ScorePageState extends State<ScorePage>
 
   Future<void> _deleteData() async {
     if (_deletePreview == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请先查询学生信息")));
+      showTopSnackBar(context, "请先查询学生信息", bottomMargin: 82);
       return;
     }
 
@@ -1362,8 +1395,10 @@ class _ScorePageState extends State<ScorePage>
       }
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("已删除「${_deletePreview!.name}」的信息")),
+      showTopSnackBar(
+        context,
+        "已删除「${_deletePreview!.name}」的信息",
+        bottomMargin: 82,
       );
 
       setState(() {
@@ -1373,9 +1408,7 @@ class _ScorePageState extends State<ScorePage>
       nameController.clear();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("删除失败: $e")));
+      showTopSnackBar(context, "删除失败: $e", bottomMargin: 82);
     }
   }
 
@@ -1460,9 +1493,7 @@ class _ScorePageState extends State<ScorePage>
                   ? '🔍 严格模式：同时匹配学号和姓名'
                   : _searchById
                   ? '🔍 按学号精确查找'
-                  : _searchByName
-                  ? '🔍 按姓名模糊查找'
-                  : '👥 两项都不勾选将显示全部学生',
+                  : '🔍 按姓名模糊查找',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
           ),
@@ -1477,6 +1508,12 @@ class _ScorePageState extends State<ScorePage>
               style: ElevatedButton.styleFrom(
                 backgroundColor: Theme.of(context).primaryColor,
                 foregroundColor: Colors.white,
+                side: Theme.of(context).brightness == Brightness.dark
+                    ? BorderSide(
+                        color: Colors.white.withValues(alpha: 0.24),
+                        width: 1,
+                      )
+                    : BorderSide.none,
               ),
             ),
           ),
@@ -1584,13 +1621,21 @@ class _ScorePageState extends State<ScorePage>
             SizedBox(
               width: double.infinity,
               height: 50,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.search),
                 onPressed: _submitAddData,
+                label: const Text('查询成绩'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).primaryColor,
                   foregroundColor: Colors.white,
+                  // 关键代码：深色模式下加描边
+                  side: Theme.of(context).brightness == Brightness.dark
+                      ? BorderSide(
+                          color: Colors.white.withValues(alpha: 0.24),
+                          width: 1,
+                        )
+                      : BorderSide.none,
                 ),
-                child: const Text('确认录入'),
               ),
             ),
           ],
@@ -1600,19 +1645,15 @@ class _ScorePageState extends State<ScorePage>
   }
 
   Widget _buildDeleteUI() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           const Text(
-            "删除信息",
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          const Text(
             "请提供学生ID或姓名，先查询再删除：",
-            style: TextStyle(color: Colors.grey),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 24),
           TextField(
@@ -1653,10 +1694,14 @@ class _ScorePageState extends State<ScorePage>
           if (_deletePreview != null) ...[
             const SizedBox(height: 16),
             Card(
-              color: Colors.orange.shade50,
+              color: isDark ? Colors.orange.shade800 : Colors.orange.shade50,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.orange.shade200),
+                side: BorderSide(
+                  color: isDark
+                      ? Colors.orange.shade700
+                      : Colors.orange.shade200,
+                ),
               ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -1685,16 +1730,21 @@ class _ScorePageState extends State<ScorePage>
                             children: [
                               Text(
                                 _deletePreview!.name,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
+                                  color: isDark
+                                      ? Colors.orange.shade100
+                                      : Colors.black87,
                                 ),
                               ),
                               Text(
                                 "学号: ${_deletePreview!.studentId}",
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: Colors.grey.shade700,
+                                  color: isDark
+                                      ? Colors.orange.shade100
+                                      : Colors.grey.shade700,
                                 ),
                               ),
                             ],
@@ -1721,20 +1771,27 @@ class _ScorePageState extends State<ScorePage>
                         children: [
                           Text(
                             "共 ${_deletePreview!.scores.length} 门课程",
-                            style: const TextStyle(fontSize: 14),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: isDark ? Colors.orange.shade100 : null,
+                            ),
                           ),
                           const SizedBox(width: 6),
                           Icon(
                             Icons.visibility,
                             size: 16,
-                            color: Colors.orange.shade700,
+                            color: isDark
+                                ? Colors.orange.shade300
+                                : Colors.orange.shade700,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             "点击查看详情",
                             style: TextStyle(
                               fontSize: 13,
-                              color: Colors.orange.shade700,
+                              color: isDark
+                                  ? Colors.orange.shade200
+                                  : Colors.orange.shade700,
                               decoration: TextDecoration.underline,
                             ),
                           ),
@@ -1832,23 +1889,26 @@ class SchedulePage extends StatefulWidget {
   State<SchedulePage> createState() => _SchedulePageState();
 }
 
-class _SchedulePageState extends State<SchedulePage> {
+class _SchedulePageState extends State<SchedulePage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController _taskController = TextEditingController();
   DateTime _selectedDate = DateTime.now();
   String _itinerary = "";
-  String _summary = ""; // 新增摘要状态
+  String _summary = "";
   bool _isLoading = false;
+
+  late final TabController _scheduleTabController;
 
   // 学习弱项相关
   bool _includeStudyAdvice = false;
-  List<String> _availableSubjects = []; // 动态加载
+  List<String> _availableSubjects = [];
   final Set<String> _selectedWeakSubjects = {};
   bool _isFetchingSubjects = false;
 
   @override
   void initState() {
     super.initState();
-    // 页面初始化时自动加载学科列表（如果学号姓名已配置）
+    _scheduleTabController = TabController(length: 2, vsync: this);
     Future.microtask(() => _fetchUserSubjects());
   }
 
@@ -1965,9 +2025,7 @@ class _SchedulePageState extends State<SchedulePage> {
             _itinerary = saved;
             _summary = summary;
           });
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
         } else {
           setState(() {
             _itinerary = "";
@@ -1999,17 +2057,13 @@ class _SchedulePageState extends State<SchedulePage> {
           }
         });
         if (response.data["from_cache"] == true) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text("成功加载 $dateStr 的本地存档")));
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
         }
       }
     } catch (e) {
       debugPrint("读取存档失败: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("读取存档失败: $e")));
+        showTopSnackBar(context, "读取存档失败: $e", bottomMargin: 82);
       }
     } finally {
       if (mounted) {
@@ -2026,9 +2080,7 @@ class _SchedulePageState extends State<SchedulePage> {
         _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
 
     if (!hasTasks && !hasStudyAdvice) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请输入任务内容或选择弱势学科")));
+      showTopSnackBar(context, "请输入任务内容或选择弱势学科", bottomMargin: 82);
       return;
     }
 
@@ -2076,13 +2128,8 @@ class _SchedulePageState extends State<SchedulePage> {
           await LocalScheduleService.saveItinerary(dateStr, itinerary);
         }
 
-        if (itinerary.isNotEmpty && mounted) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ScheduleDetailPage(content: itinerary),
-            ),
-          );
+        if (itinerary.isNotEmpty) {
+          _scheduleTabController.animateTo(1);
         }
       } else {
         // 💻 PC：后端生成
@@ -2107,13 +2154,8 @@ class _SchedulePageState extends State<SchedulePage> {
             _itinerary = response.data["itinerary"]?.toString() ?? "";
             _summary = response.data["summary"]?.toString() ?? "已生成日程详细规划";
           });
-          if (_itinerary.isNotEmpty && mounted) {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => ScheduleDetailPage(content: _itinerary),
-              ),
-            );
+          if (_itinerary.isNotEmpty) {
+            _scheduleTabController.animateTo(1);
           }
         } else {
           setState(() {
@@ -2124,9 +2166,7 @@ class _SchedulePageState extends State<SchedulePage> {
     } catch (e) {
       debugPrint("生成日程出错: $e");
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("生成失败: $e")));
+        showTopSnackBar(context, "生成失败: $e", bottomMargin: 82);
       }
     } finally {
       if (mounted) {
@@ -2139,211 +2179,365 @@ class _SchedulePageState extends State<SchedulePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final dateDisplay =
         "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
 
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    return Column(
+      children: [
+        Expanded(
+          child: TabBarView(
+            controller: _scheduleTabController,
             children: [
-              const Text(
-                "输入任务内容",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              TextButton.icon(
-                onPressed: () => _selectDate(context),
-                icon: const Icon(Icons.calendar_today),
-                label: Text(dateDisplay),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            "格式提示：每行一个任务，可带时间关键词（早上/中午/晚上）和位置标签（@outdoor/@indoor）",
-            style: TextStyle(fontSize: 12, color: Colors.grey),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _taskController,
-            maxLines: 5,
-            decoration: const InputDecoration(
-              hintText: "例如：\n早上 晨跑 @outdoor\n中午 整理文档 @indoor\n晚上 健身房",
-              border: OutlineInputBorder(),
-            ),
-          ),
-
-          // 学习弱项选择区域
-          const SizedBox(height: 16),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: Colors.blueGrey.withValues(alpha: 0.05),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: Colors.blueGrey.withValues(alpha: 0.1)),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+              // Tab 0：创建日程
+              SingleChildScrollView(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Checkbox(
-                      value: _includeStudyAdvice,
-                      onChanged: (value) {
-                        setState(() {
-                          _includeStudyAdvice = value ?? false;
-                        });
-                        if (_includeStudyAdvice && _availableSubjects.isEmpty) {
-                          _fetchUserSubjects();
-                        }
-                      },
-                    ),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "根据学习情况提供建议",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                          const Text(
-                            "选择你的弱势学科，AI将为你安排针对性的学习时间",
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-
-                // 只有勾选了才显示学科选择
-                if (_includeStudyAdvice) ...[
-                  const SizedBox(height: 12),
-                  if (_isFetchingSubjects)
-                    const Center(
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  else if (_availableSubjects.isEmpty)
-                    const Text(
-                      "暂无录入的学科，请先在'我的成绩'中录入",
-                      style: TextStyle(fontSize: 12, color: Colors.orange),
-                    )
-                  else
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _availableSubjects.map((subject) {
-                        final isSelected = _selectedWeakSubjects.contains(
-                          subject,
-                        );
-                        return FilterChip(
-                          label: Text(subject),
-                          selected: isSelected,
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _selectedWeakSubjects.add(subject);
-                              } else {
-                                _selectedWeakSubjects.remove(subject);
-                              }
-                            });
-                          },
-                          backgroundColor: Colors.white,
-                          selectedColor: Theme.of(context).primaryColor,
-                          labelStyle: TextStyle(
-                            color: isSelected ? Colors.white : Colors.black87,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton.icon(
-            onPressed: _isLoading ? null : _generateSchedule,
-            icon: _isLoading
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.auto_awesome),
-            label: const Text("生成智能日程规划"),
-            style: ElevatedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-            ),
-          ),
-          const SizedBox(height: 24),
-          if (_summary.isNotEmpty) ...[
-            const Divider(),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.blue.withValues(alpha: 0.05),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.withValues(alpha: 0.1)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.summarize, color: Colors.blue),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          "今日日程概要",
+                          "输入任务内容",
                           style: TextStyle(
-                            fontSize: 14,
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.blue,
                           ),
                         ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _summary,
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.black87,
-                          ),
+                        TextButton.icon(
+                          onPressed: () => _selectDate(context),
+                          icon: const Icon(Icons.calendar_today),
+                          label: Text(dateDisplay),
                         ),
                       ],
                     ),
-                  ),
-                  TextButton(
-                    onPressed: () {
-                      if (_itinerary.isNotEmpty && mounted) {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) =>
-                                ScheduleDetailPage(content: _itinerary),
+                    const SizedBox(height: 8),
+                    const Text(
+                      "格式提示：每行一个任务，可带时间关键词（早上/中午/晚上）和位置标签（@outdoor/@indoor）",
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _taskController,
+                      maxLines: 5,
+                      decoration: const InputDecoration(
+                        hintText:
+                            "例如：\n早上 晨跑 @outdoor\n中午 整理文档 @indoor\n晚上 健身房",
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.blueGrey.withValues(alpha: 0.05),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.blueGrey.withValues(alpha: 0.1),
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Checkbox(
+                                value: _includeStudyAdvice,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _includeStudyAdvice = value ?? false;
+                                  });
+                                  if (_includeStudyAdvice &&
+                                      _availableSubjects.isEmpty) {
+                                    _fetchUserSubjects();
+                                  }
+                                },
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      "根据学习情况提供建议",
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    const Text(
+                                      "选择你的弱势学科，AI将为你安排针对性的学习时间",
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                        );
-                      }
-                    },
-                    child: const Text("查看详情"),
-                  ),
-                ],
+                          if (_includeStudyAdvice) ...[
+                            const SizedBox(height: 12),
+                            if (_isFetchingSubjects)
+                              const Center(
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            else if (_availableSubjects.isEmpty)
+                              const Text(
+                                "暂无录入的学科，请先在'我的成绩'中录入",
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange,
+                                ),
+                              )
+                            else
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: _availableSubjects.map((subject) {
+                                  final isSelected = _selectedWeakSubjects
+                                      .contains(subject);
+                                  return FilterChip(
+                                    label: Text(subject),
+                                    selected: isSelected,
+                                    onSelected: (selected) {
+                                      setState(() {
+                                        if (selected) {
+                                          _selectedWeakSubjects.add(subject);
+                                        } else {
+                                          _selectedWeakSubjects.remove(subject);
+                                        }
+                                      });
+                                    },
+                                    backgroundColor: Colors.white,
+                                    selectedColor: Theme.of(
+                                      context,
+                                    ).primaryColor,
+                                    labelStyle: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : Colors.black87,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                          ],
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _generateSchedule,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome),
+                      label: const Text("生成智能日程规划"),
+                      style: ElevatedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    if (_summary.isNotEmpty) ...[
+                      const Divider(),
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: Colors.blue.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.blue.withValues(alpha: 0.1),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(Icons.summarize, color: Colors.blue),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    "今日日程概要",
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.blue,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _summary,
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      color: isDark
+                                          ? Colors.white
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                if (_itinerary.isNotEmpty) {
+                                  _scheduleTabController.animateTo(1);
+                                }
+                              },
+                              child: const Text("查看详情"),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              // Tab 1：查看日程
+              _itinerary.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.event_note,
+                            size: 64,
+                            color: Colors.grey.shade300,
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            "暂无日程数据",
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ],
+                      ),
+                    )
+                  : SingleChildScrollView(
+                      padding: const EdgeInsets.all(16),
+                      child: Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: isDark ? Colors.grey.shade800 : Colors.white,
+                          borderRadius: BorderRadius.circular(8),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
+                          ],
+                          border: Border.all(
+                            color: isDark
+                                ? Colors.grey.shade700
+                                : Colors.grey.shade300,
+                          ),
+                        ),
+                        child: MarkdownBody(
+                          data: _itinerary
+                              .replaceAll('```markdown', '')
+                              .replaceAll('```', ''),
+                          selectable: true,
+                          styleSheet: MarkdownStyleSheet(
+                            p: TextStyle(
+                              fontSize: 16,
+                              height: 1.6,
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                            h1: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            h2: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            tableBody: TextStyle(
+                              fontSize: 14,
+                              color: isDark ? Colors.white70 : Colors.black87,
+                            ),
+                            tableHead: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                            tableBorder: TableBorder.all(
+                              color: isDark
+                                  ? Colors.grey.shade600
+                                  : Colors.black,
+                              width: 1,
+                            ),
+                            tableCellsPadding: const EdgeInsets.all(10),
+                            listBullet: TextStyle(
+                              fontSize: 16,
+                              color: isDark ? Colors.white70 : Colors.black,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+            ],
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              top: BorderSide(
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                width: 0.5,
               ),
             ),
-          ],
-        ],
-      ),
+          ),
+          child: TabBar(
+            controller: _scheduleTabController,
+            indicatorSize: TabBarIndicatorSize.label,
+            labelColor: isDark ? Colors.white : Theme.of(context).primaryColor,
+            unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(icon: Icon(Icons.add_circle_outline), text: "创建"),
+              Tab(icon: Icon(Icons.visibility), text: "查看"),
+            ],
+          ),
+        ),
+      ],
     );
   }
 
   @override
   void dispose() {
+    _scheduleTabController.dispose();
     _taskController.dispose();
     super.dispose();
   }
+}
+
+/// 包裹 [TabBarView] 子项，使其在标签切换时保持存活不被销毁
+class _KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const _KeepAliveWrapper({required this.child});
+
+  @override
+  State<_KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+
+  @override
+  bool get wantKeepAlive => true;
 }
 
 @Preview()

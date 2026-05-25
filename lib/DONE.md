@@ -293,7 +293,81 @@
 
 ---
 
-## 八、最终手机端功能状态
+---
+
+## 十三、UI/UX 全面优化（2026-05-25）
+
+### 13.1 修复滑动误切换
+- **文件**: `lib/home_page.dart`
+- 主 `PageView` 添加 `NeverScrollableScrollPhysics`，禁止左右滑动切页
+- 只能通过底部导航栏/抽屉/侧栏 NavigationRail 切换页面
+
+### 13.2 修复历史记录黑屏
+- **文件**: `lib/history_page.dart`, `lib/home_page.dart`
+- `HistoryPage` "继续"按钮原来调用 `Navigator.pop`（弹出整个主页导致黑屏）
+- 改为 `onContinue` 回调，直接调用 `loadHistory()` 加载消息并切回聊天标签
+
+### 13.3 聊天标签切换优化
+- **文件**: `lib/home_page.dart`
+- 输入框从条件渲染改为 `AnimatedBuilder(opacity + translate)` 跟随 TabBarView 手势动画
+- 随后将输入框移入 `TabBarView` 内部，作为聊天页面的一部分，随页面内容自然滑动
+- 聊天/历史页面用 `_KeepAliveWrapper`（`AutomaticKeepAliveClientMixin`）保持存活，切换不重建
+
+### 13.4 通知提示位置改进
+- **文件**: `lib/backend_utils.dart`
+- 新增 `showTopSnackBar()` 统一提示入口，支持 `bottomMargin` 参数
+- 有输入框的页面（AI聊天）：**142px**（输入框 + TabBar + 间距）
+- 仅有底部导航栏的页面（成绩/日程）：**82px**（TabBar 64px + 6px）
+- 无导航栏的二级页面：**6px**（默认）
+- 桌面端自动检测侧栏宽度，左侧留出 96px 空间
+
+### 13.5 桌面/移动端布局平滑过渡
+- **文件**: `lib/home_page.dart`
+- 统一为单一 `Row` 布局，`PageView` 始终挂载不重建
+- 左侧导航栏用 `AnimatedSize(300ms, easeInOut)` 平滑展开/收起
+- 修复窗口缩放时页面跳回第 0 页的问题
+
+### 13.6 侧栏按钮对齐
+- **文件**: `lib/home_page.dart`
+- 设置按钮高度 56px → **48px**，对齐底部 TabBar 高度
+- 主题按钮保持 56px，对齐 AI 聊天输入框区域
+
+### 13.7 日程安排底部导航栏
+- **文件**: `lib/home_page.dart`
+- `_SchedulePageState` 加入 `SingleTickerProviderStateMixin`
+- 新增 `_scheduleTabController`（2 标签：创建 / 查看）
+- "创建"标签：原任务输入表单
+- "查看"标签：Markdown 渲染日程内容（深色适配）
+- 生成日程后自动切换到"查看"标签，不再弹出二级页面
+- 移除了 `schedule_detail_page.dart` 导入
+
+### 13.8 ScheduleDetailPage 深色适配
+- **文件**: `lib/schedule_detail_page.dart`
+- 背景、卡片底色、文字颜色、表格边框全部跟随 `isDark` 切换
+
+### 13.9 成绩搜索提示简化
+- **文件**: `lib/home_page.dart`
+- 移除"两项都不勾选将显示全部学生"的提示分支
+- 两项都不勾选时直接抛出"请至少勾选一种查找方式"
+
+### 13.10 聊天历史不显示新建对话按钮
+- **文件**: `lib/home_page.dart`
+- 条件从 `selectedIndex == 0` 改为 `selectedIndex == 0 && _chatTabIndex == 0`
+- 历史标签下 AppBar 不显示"新建对话"按钮
+
+### 13.11 页面切换改为直接跳转
+- **文件**: `lib/home_page.dart`
+- `onItemTapped` 从 `animateToPage(300ms)` 改为 `jumpToPage`，瞬时切换
+
+### 13.12 成绩删除卡片深色可读性修复
+- **文件**: `lib/home_page.dart`
+- 预览卡片底色：`orange.shade50` → `orange.shade900`（深色）
+- 姓名：`black87` → `orange.shade100`
+- 学号/图标/链接文字全部适配深色
+
+---
+
+## 十四、最终功能状态
 
 | 功能 | Android | PC |
 |------|---------|-----|

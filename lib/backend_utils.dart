@@ -617,3 +617,29 @@ Future<Map<String, Map<String, Map<String, dynamic>>>> loadBacklogForRange({
   }
   return result;
 }
+
+/// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端居中）
+/// [bottomMargin] 可自定义底部间距：输入框页面用 142，仅导航栏用 82，无导航栏用 6
+void showTopSnackBar(
+  BuildContext context,
+  String message, {
+  double bottomMargin = 6,
+}) {
+  final width = MediaQuery.of(context).size.width;
+  final bool sidebarVisible = width >= 450;
+  ScaffoldMessenger.of(context).clearSnackBars();
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+      margin: EdgeInsets.only(
+        bottom: bottomMargin,
+        left: sidebarVisible ? 96 : 16,
+        right: 16,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}

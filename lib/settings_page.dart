@@ -152,9 +152,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (baseUrl.isEmpty || apiKey.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text("请先填写 Base URL 和 API Key")));
+      showTopSnackBar(context, "请先填写 Base URL 和 API Key");
       return;
     }
 
@@ -167,7 +165,6 @@ class _SettingsPageState extends State<SettingsPage> {
       }
     });
 
-    final messenger = ScaffoldMessenger.of(context);
     try {
       final modelsUrl = baseUrl.endsWith('/')
           ? '${baseUrl}models'
@@ -200,7 +197,7 @@ class _SettingsPageState extends State<SettingsPage> {
           _fetchingIndex = -1;
         });
         if (models.isEmpty && mounted) {
-          messenger.showSnackBar(const SnackBar(content: Text("未获取到模型列表")));
+          showTopSnackBar(context, "未获取到模型列表");
         }
       } else {
         setState(() {
@@ -214,7 +211,7 @@ class _SettingsPageState extends State<SettingsPage> {
         _fetchingIndex = -1;
       });
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("网络错误: $e")));
+        showTopSnackBar(context, "网络错误: $e");
       }
     }
   }
@@ -222,7 +219,6 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
   Future<void> _onPickFolder() async {
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
     try {
       final result = await FilePicker.platform.getDirectoryPath(
@@ -260,16 +256,12 @@ class _SettingsPageState extends State<SettingsPage> {
             await Future.delayed(const Duration(seconds: 1));
             final granted = await checkStoragePermission();
             if (!granted && mounted) {
-              messenger.showSnackBar(
-                const SnackBar(content: Text("权限未授予，将使用软件自有目录存储数据")),
-              );
+              showTopSnackBar(context, "权限未授予，将使用软件自有目录存储数据");
               return;
             }
           } else {
             if (mounted) {
-              messenger.showSnackBar(
-                const SnackBar(content: Text("将使用软件自有目录存储数据")),
-              );
+              showTopSnackBar(context, "将使用软件自有目录存储数据");
             }
             return;
           }
@@ -278,19 +270,18 @@ class _SettingsPageState extends State<SettingsPage> {
 
       _basePathController.text = result;
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("已选择文件夹: $result")));
+        showTopSnackBar(context, "已选择文件夹: $result");
       }
     } catch (e) {
       debugPrint("选择文件夹失败: $e");
       if (mounted) {
-        messenger.showSnackBar(SnackBar(content: Text("选择文件夹失败: $e")));
+        showTopSnackBar(context, "选择文件夹失败: $e");
       }
     }
   }
 
   Future<void> _saveSettings() async {
     if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     try {
       final directory = await getProjectDirectory();
       final basePath = _basePathController.text.trim();
@@ -364,11 +355,11 @@ class _SettingsPageState extends State<SettingsPage> {
       }
 
       if (!mounted) return;
-      messenger.showSnackBar(const SnackBar(content: Text("设置已保存并应用")));
+      showTopSnackBar(context, "设置已保存并应用");
       setState(() => _isEditing = false);
     } catch (e) {
       if (!mounted) return;
-      messenger.showSnackBar(SnackBar(content: Text("保存失败: $e")));
+      showTopSnackBar(context, "保存失败: $e");
     }
   }
 
