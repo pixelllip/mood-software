@@ -42,4 +42,3 @@
 - `lib/settings_page.dart`
 - `lib/home_page.dart`
 
-现在聊天历史界面不需要Appbar（已由整体Appbar实现）；侧边栏底部跟上部的排版较为割裂
