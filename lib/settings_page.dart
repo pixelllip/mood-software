@@ -49,6 +49,9 @@ class _SettingsPageState extends State<SettingsPage> {
   String _configFilePath = "";
   String _backlogPath = "";
 
+  // 主题模式
+  String _themeMode = 'system'; // 'system', 'light', 'dark'
+
   @override
   void initState() {
     super.initState();
@@ -73,6 +76,10 @@ class _SettingsPageState extends State<SettingsPage> {
         _setTextIfNotEmpty(_idController, config['STUDENT_ID']);
         _setTextIfNotEmpty(_nameController, config['STUDENT_NAME']);
         _setTextIfNotEmpty(_gaodeKeyController, config['Gaode_API_Key']);
+
+        // 加载主题模式
+        final themeMode = config['THEME_MODE']?.toString() ?? 'system';
+        _themeMode = themeMode;
 
         // 加载 AI 配置
         final aiConfigs = getAiConfigs(config);
@@ -260,7 +267,9 @@ class _SettingsPageState extends State<SettingsPage> {
             }
           } else {
             if (mounted) {
-              messenger.showSnackBar(const SnackBar(content: Text("将使用软件自有目录存储数据")));
+              messenger.showSnackBar(
+                const SnackBar(content: Text("将使用软件自有目录存储数据")),
+              );
             }
             return;
           }
@@ -307,9 +316,22 @@ class _SettingsPageState extends State<SettingsPage> {
         "STUDENT_NAME": _nameController.text.trim(),
         "Gaode_API_Key": _gaodeKeyController.text.trim(),
         "SERVER_PORT": int.tryParse(_portController.text.trim()) ?? 8080,
+        "THEME_MODE": _themeMode,
         "AI_CONFIGS": aiConfigList,
       };
       await saveConfigFile(config);
+
+      // 更新全局主题
+      switch (_themeMode) {
+        case 'light':
+          themeModeNotifier.value = ThemeMode.light;
+          break;
+        case 'dark':
+          themeModeNotifier.value = ThemeMode.dark;
+          break;
+        default:
+          themeModeNotifier.value = ThemeMode.system;
+      }
 
       // 同步更新 Dio
       if (Platform.isAndroid) {
@@ -378,6 +400,9 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildTextField(_nameController, "姓名"),
             const SizedBox(height: 12),
             _buildTextField(_idController, "学号"),
+            const SizedBox(height: 24),
+            _buildSectionTitle("主题模式"),
+            _buildThemeModeSelector(),
             const SizedBox(height: 24),
             _buildSectionTitle("AI 服务配置"),
             _buildAiConfigSection(),
@@ -601,6 +626,45 @@ class _SettingsPageState extends State<SettingsPage> {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildThemeModeSelector() {
+    return RadioGroup<String>(
+      groupValue: _themeMode,
+      onChanged: (val) {
+        if (val == null) return;
+        setState(() => _themeMode = val);
+        // 立即保存并应用
+        _saveSettings();
+      },
+      child: Column(
+        children: [
+          _buildThemeRadioTile('system', '跟随系统', Icons.settings_brightness),
+          _buildThemeRadioTile('light', '浅色模式', Icons.light_mode),
+          _buildThemeRadioTile('dark', '深色模式', Icons.dark_mode),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildThemeRadioTile(String value, String label, IconData icon) {
+    final isSelected = _themeMode == value;
+    return RadioListTile<String>(
+      title: Row(
+        children: [
+          Icon(
+            icon,
+            size: 20,
+            color: isSelected ? Colors.deepPurple : Colors.grey,
+          ),
+          const SizedBox(width: 8),
+          Text(label),
+        ],
+      ),
+      value: value,
+      contentPadding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
     );
   }
 

@@ -210,25 +210,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text("历史对话记录"),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        actions: [
-          // 排序切换按钮
-          IconButton(
-            icon: Icon(
-              _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
-            ),
-            tooltip: _sortAscending ? "正序排列" : "倒序排列",
-            onPressed: () {
-              setState(() => _sortAscending = !_sortAscending);
-              _fetchHistory();
-            },
-          ),
-        ],
-      ),
-      body: Column(
+    return Column(
         children: [
           // 模式选择与日期选择栏（带阴影区分结果区）
           Material(
@@ -239,7 +221,7 @@ class _HistoryPageState extends State<HistoryPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 模式切换行
+                  // 模式切换行 + 排序按钮
                   Row(
                     children: [
                       const Icon(
@@ -253,30 +235,44 @@ class _HistoryPageState extends State<HistoryPage> {
                         style: TextStyle(fontWeight: FontWeight.w500),
                       ),
                       const SizedBox(width: 4),
-                      SegmentedButton<bool>(
-                        segments: const [
-                          ButtonSegment(
-                            value: false,
-                            label: Text("单日"),
-                            icon: Icon(Icons.calendar_today, size: 16),
-                          ),
-                          ButtonSegment(
-                            value: true,
-                            label: Text("时间段"),
-                            icon: Icon(Icons.view_week, size: 16),
-                          ),
-                        ],
-                        selected: {_rangeMode},
-                        onSelectionChanged: (selected) {
-                          setState(() => _rangeMode = selected.first);
-                          _fetchHistory();
-                        },
-                        style: ButtonStyle(
-                          visualDensity: VisualDensity.compact,
-                          textStyle: WidgetStateProperty.all(
-                            const TextStyle(fontSize: 13),
+                      Expanded(
+                        child: SegmentedButton<bool>(
+                          segments: const [
+                            ButtonSegment(
+                              value: false,
+                              label: Text("单日"),
+                              icon: Icon(Icons.calendar_today, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: true,
+                              label: Text("时间段"),
+                              icon: Icon(Icons.view_week, size: 16),
+                            ),
+                          ],
+                          selected: {_rangeMode},
+                          onSelectionChanged: (selected) {
+                            setState(() => _rangeMode = selected.first);
+                            _fetchHistory();
+                          },
+                          style: ButtonStyle(
+                            visualDensity: VisualDensity.compact,
+                            textStyle: WidgetStateProperty.all(
+                              const TextStyle(fontSize: 13),
+                            ),
                           ),
                         ),
+                      ),
+                      // 排序按钮
+                      IconButton(
+                        icon: Icon(
+                          _sortAscending ? Icons.arrow_upward : Icons.arrow_downward,
+                        ),
+                        tooltip: _sortAscending ? "正序排列" : "倒序排列",
+                        onPressed: () {
+                          setState(() => _sortAscending = !_sortAscending);
+                          _fetchHistory();
+                        },
+                        visualDensity: VisualDensity.compact,
                       ),
                     ],
                   ),
@@ -653,7 +649,6 @@ class _HistoryPageState extends State<HistoryPage> {
                   ),
           ),
         ],
-      ),
     );
   }
 }

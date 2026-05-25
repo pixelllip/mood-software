@@ -5,6 +5,10 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+
+/// 全局主题模式通知器（用于深浅色主题切换）
+final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
 
 /// 安全地将进程输出字节流转为**逐行字符串**
 /// 先尝试 UTF-8，若含非法字节则回退到系统编码（中文 Windows 为 GBK）

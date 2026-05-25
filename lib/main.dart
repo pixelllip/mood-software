@@ -102,14 +102,35 @@ void main() async {
     }
   }
 
+  // 从配置中读取主题偏好
+  final config = await loadConfigFile();
+  if (config.containsKey('THEME_MODE')) {
+    switch (config['THEME_MODE']) {
+      case 'light':
+        themeModeNotifier.value = ThemeMode.light;
+        break;
+      case 'dark':
+        themeModeNotifier.value = ThemeMode.dark;
+        break;
+      default:
+        themeModeNotifier.value = ThemeMode.system;
+    }
+  }
+
   runApp(
-    MyApp(
-      initialDio: dio,
-      showWelcome: showWelcome,
-      useDirectApi: useDirectApi,
-      directBaseUrl: directBaseUrl,
-      directApiKey: directApiKey,
-      directModel: directModel,
+    ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, themeMode, _) {
+        return MyApp(
+          initialDio: dio,
+          showWelcome: showWelcome,
+          useDirectApi: useDirectApi,
+          directBaseUrl: directBaseUrl,
+          directApiKey: directApiKey,
+          directModel: directModel,
+          themeMode: themeMode,
+        );
+      },
     ),
   );
 }
@@ -121,6 +142,7 @@ class MyApp extends StatelessWidget {
   final String? directBaseUrl;
   final String? directApiKey;
   final String? directModel;
+  final ThemeMode themeMode;
   const MyApp({
     super.key,
     this.initialDio,
@@ -129,6 +151,7 @@ class MyApp extends StatelessWidget {
     this.directBaseUrl,
     this.directApiKey,
     this.directModel,
+    this.themeMode = ThemeMode.system,
   });
 
   @override
@@ -136,8 +159,19 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: '星火学伴',
       debugShowCheckedModeBanner: false,
+      themeMode: themeMode,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.light,
+        ),
+        useMaterial3: true,
+      ),
+      darkTheme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.deepPurple,
+          brightness: Brightness.dark,
+        ),
         useMaterial3: true,
       ),
       localizationsDelegates: const [

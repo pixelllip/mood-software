@@ -5,6 +5,99 @@
 
 ---
 
+## 八、深浅主题切换 + 聊天底部导航（2026-05-25）
+
+### 8.1 深浅主题切换
+- **文件**: `lib/main.dart`
+- 添加 `darkTheme` 深色主题定义（`ColorScheme.fromSeed` + `Brightness.dark`）
+- `MyApp` 新增 `themeMode` 参数，通过 `ValueListenableBuilder` 响应式切换
+- 启动时从 `config.json` 读取 `THEME_MODE` 配置
+
+### 8.2 全局主题通知器
+- **文件**: `lib/backend_utils.dart`
+- 新增全局 `themeModeNotifier`（`ValueNotifier<ThemeMode>`）
+- 默认 `ThemeMode.system`（跟随系统）
+
+### 8.3 设置页主题选择
+- **文件**: `lib/settings_page.dart`
+- 新增"主题模式"设置区域（个人信息下方）
+- 三个选项：跟随系统（`settings_brightness`）/ 浅色模式（`light_mode`）/ 深色模式（`dark_mode`）
+- 保存时同步更新 `config.json` 和 `themeModeNotifier`
+
+### 8.4 AI 聊天底部导航栏
+- **文件**: `lib/home_page.dart`
+- 从 AppBar 移除"查看聊天历史"按钮
+- 在输入框下方新增"聊天" | "历史" 双标签导航栏
+  - 选中标签底部有 2px 主题色指示线
+  - 带图标和文字，选中时高亮
+  - 点击"历史"跳转 `HistoryPage`，返回后自动切回"聊天"
+- AI 回复气泡适配深色模式文字颜色
+
+---
+
+## 九、滑动切换 + 底部导航 + 成绩页导航栏下移（2026-05-25）
+
+### 9.1 主页面滑动切换
+- **文件**: `lib/home_page.dart`
+- 手机端 `IndexedStack` → `PageView`，支持左右滑动切换主页面
+- 新增 `PageController`，与 `selectedIndex` 双向同步
+- 手机端新增底部 `NavigationBar`（AI聊天 / 我的成绩 / 日程安排）
+- 点击底部导航项或左右滑动均可切换页面
+- `onItemTapped` 改为带动画的 `animateToPage`
+
+### 9.2 成绩页导航栏移到底部
+- **文件**: `lib/home_page.dart`（ScorePage）
+- ScorePage 的 TabBar（查询 / 录入 / 删除）从顶部移到底部
+- 改为底部边框样式（`border: Border(top: ...)`），与整体 UI 统一
+
+---
+
+## 十、聊天历史独立页面 + 成绩页滑动 + UI 重构（2026-05-25）
+
+### 10.1 聊天历史嵌入主页面
+- **文件**: `lib/home_page.dart`
+- 聊天历史不再以 `Navigator.push` 打开新页面
+- 作为主 PageView 的 index=1 页面，与 AI聊天同级，可左右滑动切换
+- `pageTitles` 更新为 4 项：AI聊天 / 聊天历史 / 我的成绩 / 日程安排
+- 抽屉（Drawer）和侧栏（NavigationRail）新增"聊天历史"选项
+- HomeContent 中的"聊天"|"历史"底部导航栏已移除
+
+### 10.2 成绩页滑动切换
+- **文件**: `lib/home_page.dart`（ScorePage）
+- ScorePage 内部 `IndexedStack` → `TabBarView`
+- 查询 / 录入 / 删除 三个子页面支持**左右滑动切换**
+- `TabBar` 保持在底部，与 `TabBarView` 联动
+
+### 10.3 底部导航栏移除
+- **文件**: `lib/home_page.dart`
+- 移除之前新增的 `bottomNavigationBar`（不复现抽屉导航逻辑）
+- 手机端仅通过 `PageView` 滑动 + 抽屉菜单导航
+
+### 10.4 桌面端 NavigationRail 修复
+- **文件**: `lib/home_page.dart`
+- 桌面端 `IndexedStack` → `PageView`（与手机端一致）
+- 点击 NavigationRail 时通过 `PageController.animateToPage` 切换
+- `onPageChanged` 同步更新 `selectedIndex`
+
+---
+
+## 十一、AI聊天底部导航栏恢复 + 重构（2026-05-25）
+
+### 11.1 HomeContent 内部聊天/历史滑动切换
+- **文件**: `lib/home_page.dart`
+- HomeContent 内部使用 `PageView`（0=聊天, 1=历史），左右滑动切换
+- 底部恢复"聊天"|"历史"导航栏，带主题色指示线
+- 输入框仅在"聊天"标签下显示，"历史"标签全屏嵌入 `HistoryPage`
+- 新增 `_chatPageController` 和 `_chatTabIndex` 状态管理
+
+### 11.2 恢复 3 主页面结构
+- **文件**: `lib/home_page.dart`
+- `pageTitles` 恢复为 3 项：AI聊天 / 我的成绩 / 日程安排
+- 抽屉（Drawer）和侧栏（NavigationRail）**移除"聊天历史"** 条目
+- 主 PageView 恢复 3 页，历史从 AI聊天底部进入
+
+---
+
 ## 一、存储路径与权限
 
 ### 1.1 默认路径改为自有目录

@@ -36,17 +36,26 @@ class _MyHomePageState extends State<MyHomePage> {
   int selectedIndex = 0;
   final GlobalKey<_HomeContentState> _homeContentKey =
       GlobalKey<_HomeContentState>();
+  late final PageController _pageController;
 
   String userID = "未知学号";
   String userName = "未知用户";
   String? _currentChatSummary;
+  int _chatTabIndex = 0;
 
   final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排"];
 
   @override
   void initState() {
     super.initState();
+    _pageController = PageController(initialPage: 0);
     _loadUserInfo();
+  }
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadUserInfo() async {
@@ -65,18 +74,46 @@ class _MyHomePageState extends State<MyHomePage> {
     }
   }
 
+  /// 保存主题模式到配置文件
+  Future<void> _saveThemeMode(ThemeMode mode) async {
+    try {
+      final config = await loadConfigFile();
+      String modeStr;
+      switch (mode) {
+        case ThemeMode.light:
+          modeStr = 'light';
+          break;
+        case ThemeMode.dark:
+          modeStr = 'dark';
+          break;
+        default:
+          modeStr = 'system';
+      }
+      config['THEME_MODE'] = modeStr;
+      await saveConfigFile(config);
+    } catch (e) {
+      debugPrint("保存主题模式失败: $e");
+    }
+  }
+
   void onItemTapped(int index) {
+    _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+    );
     setState(() {
       selectedIndex = index;
     });
   }
 
   Widget buildDrawer() {
+    final bool isDark = Theme.of(context).brightness == Brightness.dark;
     return Drawer(
       child: ListTileTheme(
-        selectedColor: Theme.of(context).primaryColor,
-        iconColor: Colors.grey.shade600,
-        textColor: Colors.black87,
+        selectedColor: isDark ? Colors.white : Theme.of(context).primaryColor,
+        iconColor: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+        textColor: isDark ? Colors.white : Colors.black87,
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
@@ -129,6 +166,27 @@ class _MyHomePageState extends State<MyHomePage> {
               },
             ),
             const Divider(),
+            // 快捷深浅色切换（检测实际亮度）
+            ListTile(
+              leading: Icon(
+                Theme.of(context).brightness == Brightness.dark
+                    ? Icons.light_mode
+                    : Icons.dark_mode,
+              ),
+              title: Text(
+                Theme.of(context).brightness == Brightness.dark
+                    ? "切换到浅色模式"
+                    : "切换到深色模式",
+              ),
+              onTap: () {
+                Navigator.pop(context);
+                final next = Theme.of(context).brightness == Brightness.dark
+                    ? ThemeMode.light
+                    : ThemeMode.dark;
+                themeModeNotifier.value = next;
+                _saveThemeMode(next);
+              },
+            ),
             ListTile(
               leading: const Icon(Icons.settings),
               title: const Text("设置"),
@@ -186,8 +244,8 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          selectedIndex == 0 && _currentChatSummary != null
-              ? _currentChatSummary!
+          selectedIndex == 0
+              ? (_chatTabIndex == 1 ? "聊天历史" : (_currentChatSummary ?? "AI聊天"))
               : pageTitles[selectedIndex],
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
@@ -201,25 +259,6 @@ class _MyHomePageState extends State<MyHomePage> {
                   _currentChatSummary = null;
                 });
                 _homeContentKey.currentState?.resetChat();
-              },
-            ),
-            const SizedBox(width: 10),
-            IconButton(
-              icon: const Icon(Icons.history),
-              tooltip: "查看聊天历史",
-              onPressed: () async {
-                final result = await Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => HistoryPage(dio: widget.dio),
-                  ),
-                );
-                if (result != null && result is Map) {
-                  setState(() {
-                    _currentChatSummary = result['summary'];
-                  });
-                  _homeContentKey.currentState?.loadHistory(result);
-                }
               },
             ),
           ],
@@ -246,9 +285,15 @@ class _MyHomePageState extends State<MyHomePage> {
       drawerEdgeDragWidth: isMobile
           ? MediaQuery.of(context).size.width * 0.15
           : null,
+
       body: isMobile
-          ? IndexedStack(
-              index: selectedIndex,
+          ? PageView(
+              controller: _pageController,
+              onPageChanged: (index) {
+                setState(() {
+                  selectedIndex = index;
+                });
+              },
               children: [
                 HomeContent(
                   key: _homeContentKey,
@@ -260,6 +305,11 @@ class _MyHomePageState extends State<MyHomePage> {
                   onSummaryUpdate: (summary) {
                     setState(() {
                       _currentChatSummary = summary;
+                    });
+                  },
+                  onChatTabChanged: (index) {
+                    setState(() {
+                      _chatTabIndex = index;
                     });
                   },
                 ),
@@ -278,11 +328,89 @@ class _MyHomePageState extends State<MyHomePage> {
             )
           : Row(
               children: [
-                buildRail(),
+                // 桌面侧栏：导航 + 底部按钮
+                SizedBox(
+                  width: 80,
+                  child: Column(
+                    children: [
+                      Expanded(child: buildRail()),
+                      const Divider(height: 1),
+                      // 主题切换
+                      SizedBox(
+                        height: 56,
+                        child: InkWell(
+                          onTap: () {
+                            final next = Theme.of(context).brightness == Brightness.dark
+                                ? ThemeMode.light
+                                : ThemeMode.dark;
+                            themeModeNotifier.value = next;
+                            _saveThemeMode(next);
+                          },
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Theme.of(context).brightness == Brightness.dark
+                                    ? Icons.light_mode
+                                    : Icons.dark_mode,
+                                size: 24,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                "主题",
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      // 设置
+                      SizedBox(
+                        height: 56,
+                        child: InkWell(
+                          onTap: () async {
+                            await Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => SettingsPage(
+                                  dio: widget.dio,
+                                  userName: userName,
+                                  userID: userID,
+                                ),
+                              ),
+                            );
+                            _loadUserInfo();
+                          },
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              const Icon(Icons.settings, size: 24),
+                              const SizedBox(height: 4),
+                              Text(
+                                "设置",
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
+                ),
                 const VerticalDivider(width: 1),
                 Expanded(
-                  child: IndexedStack(
-                    index: selectedIndex,
+                  child: PageView(
+                    controller: _pageController,
+                    onPageChanged: (index) {
+                      setState(() {
+                        selectedIndex = index;
+                      });
+                    },
                     children: [
                       HomeContent(
                         key: _homeContentKey,
@@ -294,6 +422,11 @@ class _MyHomePageState extends State<MyHomePage> {
                         onSummaryUpdate: (summary) {
                           setState(() {
                             _currentChatSummary = summary;
+                          });
+                        },
+                        onChatTabChanged: (index) {
+                          setState(() {
+                            _chatTabIndex = index;
                           });
                         },
                       ),
@@ -320,6 +453,7 @@ class _MyHomePageState extends State<MyHomePage> {
 class HomeContent extends StatefulWidget {
   final Dio dio;
   final Function(String)? onSummaryUpdate;
+  final Function(int)? onChatTabChanged;
   final bool useDirectApi;
   final String? directBaseUrl;
   final String? directApiKey;
@@ -328,6 +462,7 @@ class HomeContent extends StatefulWidget {
     super.key,
     required this.dio,
     this.onSummaryUpdate,
+    this.onChatTabChanged,
     this.useDirectApi = false,
     this.directBaseUrl,
     this.directApiKey,
@@ -338,7 +473,8 @@ class HomeContent extends StatefulWidget {
   State<HomeContent> createState() => _HomeContentState();
 }
 
-class _HomeContentState extends State<HomeContent> {
+class _HomeContentState extends State<HomeContent>
+    with SingleTickerProviderStateMixin {
   final List<Map<String, dynamic>> _messages = [
     {"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false},
   ];
@@ -434,6 +570,9 @@ class _HomeContentState extends State<HomeContent> {
     } else if (historyData is List) {
       historyMessages = historyData;
     }
+
+    // 切回聊天标签
+    _chatTabController.animateTo(0);
 
     setState(() {
       _isMapQuery = false;
@@ -590,128 +729,233 @@ class _HomeContentState extends State<HomeContent> {
     }
   }
 
+  /// AI聊天内部 Tab 控制器（0=聊天, 1=历史）
+  late final TabController _chatTabController;
+  int get _chatTabIndex => _chatTabController.index;
+
+  @override
+  void initState() {
+    super.initState();
+    _chatTabController = TabController(length: 2, vsync: this);
+    _chatTabController.addListener(() {
+      if (!_chatTabController.indexIsChanging) {
+        widget.onChatTabChanged?.call(_chatTabController.index);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       children: [
         Expanded(
-          child: ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.all(16),
-            itemCount: _messages.length,
-            itemBuilder: (context, index) {
-              final msg = _messages[index];
-              final isUser = msg["isUser"] as bool;
-              // 是否是最后一个AI消息（当前正在渲染或刚完成的回复）
-              final isLastAiMsg = !isUser && index == _messages.length - 1;
-              return Align(
-                alignment: isUser
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  padding: const EdgeInsets.only(
-                    left: 16,
-                    right: 16,
-                    top: 10,
-                    bottom: 6,
-                  ),
-                  constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isUser
-                        ? Theme.of(context).primaryColor
-                        : Colors.grey.shade200,
-                    borderRadius: BorderRadius.only(
-                      topLeft: const Radius.circular(16),
-                      topRight: const Radius.circular(16),
-                      bottomLeft: Radius.circular(isUser ? 16 : 0),
-                      bottomRight: Radius.circular(isUser ? 0 : 16),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      MarkdownBody(
-                        data: msg["text"],
-                        selectable: true,
-                        styleSheet: MarkdownStyleSheet(
-                          p: TextStyle(
-                            color: isUser ? Colors.white : Colors.black87,
-                            fontSize: 16,
-                          ),
-                          listBullet: TextStyle(
-                            color: isUser ? Colors.white70 : Colors.black54,
-                          ),
+          child: TabBarView(
+            controller: _chatTabController,
+            children: [
+              // 页面0：聊天消息列表
+              ListView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.all(16),
+                itemCount: _messages.length,
+                itemBuilder: (context, index) {
+                  final msg = _messages[index];
+                  final isUser = msg["isUser"] as bool;
+                  final isLastAiMsg = !isUser && index == _messages.length - 1;
+                  return Align(
+                    alignment: isUser
+                        ? Alignment.centerRight
+                        : Alignment.centerLeft,
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.only(
+                        left: 16,
+                        right: 16,
+                        top: 10,
+                        bottom: 6,
+                      ),
+                      constraints: BoxConstraints(
+                        maxWidth: MediaQuery.of(context).size.width * 0.7,
+                      ),
+                      decoration: BoxDecoration(
+                        color: isUser
+                            ? Theme.of(context).primaryColor
+                            : (isDark
+                                  ? Colors.grey.shade800
+                                  : Colors.grey.shade200),
+                        borderRadius: BorderRadius.only(
+                          topLeft: const Radius.circular(16),
+                          topRight: const Radius.circular(16),
+                          bottomLeft: Radius.circular(isUser ? 16 : 0),
+                          bottomRight: Radius.circular(isUser ? 0 : 16),
                         ),
                       ),
-                      // 地图跳转按钮：整合在AI回复气泡底部
-                      if (isLastAiMsg && _isMapQuery)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: OutlinedButton.icon(
-                              onPressed: _openAmap,
-                              icon: const Icon(Icons.map, size: 16),
-                              label: const Text(
-                                "在地图中查看",
-                                style: TextStyle(fontSize: 13),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          MarkdownBody(
+                            data: msg["text"],
+                            selectable: true,
+                            styleSheet: MarkdownStyleSheet(
+                              p: TextStyle(
+                                color: isUser
+                                    ? Colors.white
+                                    : (isDark
+                                          ? const Color(0xFFE0E0E0)
+                                          : Colors.black87),
+                                fontSize: 16,
                               ),
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: const Color(0xFFFF6A00),
-                                side: const BorderSide(
-                                  color: Color(0xFFFF6A00),
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 6,
-                                ),
-                                minimumSize: const Size(0, 32),
-                                visualDensity: VisualDensity.compact,
+                              listBullet: TextStyle(
+                                color: isUser
+                                    ? Colors.white70
+                                    : (isDark
+                                          ? const Color(0xFF9E9E9E)
+                                          : Colors.black54),
+                              ),
+                              code: TextStyle(
+                                backgroundColor: isDark
+                                    ? const Color(0xFF1E1E1E)
+                                    : Colors.grey.shade100,
+                                color: isDark
+                                    ? const Color(0xFF6A9955)
+                                    : Colors.black87,
+                                fontSize: 14,
+                              ),
+                              codeblockDecoration: BoxDecoration(
+                                color: isDark
+                                    ? const Color(0xFF1E1E1E)
+                                    : Colors.grey.shade100,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              h1: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFFE0E0E0)
+                                    : Colors.black87,
+                              ),
+                              h2: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFFE0E0E0)
+                                    : Colors.black87,
+                              ),
+                              h3: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFFE0E0E0)
+                                    : Colors.black87,
+                              ),
+                              a: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFF64B5F6)
+                                    : Colors.blue,
+                              ),
+                              strong: TextStyle(
+                                color: isUser
+                                    ? Colors.white
+                                    : (isDark
+                                          ? const Color(0xFFE0E0E0)
+                                          : Colors.black87),
+                                fontWeight: FontWeight.bold,
+                              ),
+                              blockquote: TextStyle(
+                                color: isDark
+                                    ? const Color(0xFFBDBDBD)
+                                    : Colors.black54,
                               ),
                             ),
                           ),
-                        ),
-                    ],
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Theme.of(context).cardColor,
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black12,
-                offset: const Offset(0, -1),
-                blurRadius: 4,
+                          if (isLastAiMsg && _isMapQuery)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: OutlinedButton.icon(
+                                  onPressed: _openAmap,
+                                  icon: const Icon(Icons.map, size: 16),
+                                  label: const Text(
+                                    "在地图中查看",
+                                    style: TextStyle(fontSize: 13),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: const Color(0xFFFF6A00),
+                                    side: const BorderSide(
+                                      color: Color(0xFFFF6A00),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 6,
+                                    ),
+                                    minimumSize: const Size(0, 32),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               ),
+              // 页面1：聊天历史（内嵌）
+              HistoryPage(dio: widget.dio),
             ],
           ),
-          child: Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _controller,
-                  decoration: const InputDecoration(
-                    hintText: "给AI发送消息...",
-                    border: InputBorder.none,
-                  ),
-                  onSubmitted: (_) => _handleSend(),
+        ),
+        // 输入框（仅在"聊天"标签显示）
+        if (_chatTabIndex == 0)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Theme.of(context).cardColor,
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black12,
+                  offset: const Offset(0, -1),
+                  blurRadius: 4,
                 ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _controller,
+                    decoration: const InputDecoration(
+                      hintText: "给AI发送消息...",
+                      border: InputBorder.none,
+                    ),
+                    onSubmitted: (_) => _handleSend(),
+                  ),
+                ),
+                IconButton(
+                  icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
+                  onPressed: _handleSend,
+                ),
+              ],
+            ),
+          ),
+        // 底部导航栏（TabBar 样式）："聊天" | "历史"
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              top: BorderSide(
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                width: 0.5,
               ),
-              IconButton(
-                icon: Icon(Icons.send, color: Theme.of(context).primaryColor),
-                onPressed: _handleSend,
-              ),
+            ),
+          ),
+          child: TabBar(
+            controller: _chatTabController,
+            indicatorSize: TabBarIndicatorSize.label,
+            labelColor: isDark ? Colors.white : Theme.of(context).primaryColor,
+            unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(icon: Icon(Icons.chat_bubble_outline), text: "聊天"),
+              Tab(icon: Icon(Icons.history), text: "历史"),
             ],
           ),
         ),
@@ -721,6 +965,7 @@ class _HomeContentState extends State<HomeContent> {
 
   @override
   void dispose() {
+    _chatTabController.dispose();
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -735,18 +980,33 @@ class ScorePage extends StatefulWidget {
   State<ScorePage> createState() => _ScorePageState();
 }
 
-class _ScorePageState extends State<ScorePage> {
+class _ScorePageState extends State<ScorePage>
+    with SingleTickerProviderStateMixin {
   final TextEditingController idController = TextEditingController();
   final TextEditingController nameController = TextEditingController();
   final List<Map<String, TextEditingController>> _scoreItems = [];
+  late final TabController _tabController;
 
-  int _selectedFuncIndex = 0;
+  int _selectedFuncIndex = 0; // ignore: unused_field
   // 查询复选框状态
   bool _searchById = true;
   bool _searchByName = false;
   // 删除预览
   StudentData? _deletePreview;
   bool _isQueryingDelete = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (!_tabController.indexIsChanging) {
+        setState(() {
+          _selectedFuncIndex = _tabController.index;
+        });
+      }
+    });
+  }
 
   void _addScoreItem() {
     setState(() {
@@ -1121,6 +1381,7 @@ class _ScorePageState extends State<ScorePage> {
 
   @override
   void dispose() {
+    _tabController.dispose();
     idController.dispose();
     nameController.dispose();
     for (var item in _scoreItems) {
@@ -1509,47 +1770,39 @@ class _ScorePageState extends State<ScorePage> {
 
   @override
   Widget build(BuildContext context) {
-    return DefaultTabController(
-      length: 3,
-      initialIndex: _selectedFuncIndex,
-      child: Column(
-        children: [
-          Container(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.05),
-                  blurRadius: 4,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: TabBar(
-              onTap: (index) {
-                setState(() {
-                  _selectedFuncIndex = index;
-                });
-              },
-              indicatorSize: TabBarIndicatorSize.label,
-              labelColor: Theme.of(context).primaryColor,
-              unselectedLabelColor: Colors.grey,
-              indicatorWeight: 3,
-              tabs: const [
-                Tab(icon: Icon(Icons.search), text: "查询"),
-                Tab(icon: Icon(Icons.add_circle_outline), text: "录入"),
-                Tab(icon: Icon(Icons.delete_outline), text: "删除"),
-              ],
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Column(
+      children: [
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
+            children: [_buildSearchUI(), _buildAddUI(), _buildDeleteUI()],
+          ),
+        ),
+        Container(
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            border: Border(
+              top: BorderSide(
+                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                width: 0.5,
+              ),
             ),
           ),
-          Expanded(
-            child: IndexedStack(
-              index: _selectedFuncIndex,
-              children: [_buildSearchUI(), _buildAddUI(), _buildDeleteUI()],
-            ),
+          child: TabBar(
+            controller: _tabController,
+            indicatorSize: TabBarIndicatorSize.label,
+            labelColor: isDark ? Colors.white : Theme.of(context).primaryColor,
+            unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
+            indicatorWeight: 3,
+            tabs: const [
+              Tab(icon: Icon(Icons.search), text: "查询"),
+              Tab(icon: Icon(Icons.add_circle_outline), text: "录入"),
+              Tab(icon: Icon(Icons.delete_outline), text: "删除"),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
