@@ -98,6 +98,33 @@
 
 ---
 
+## 十二、构建脚本支持多平台发行版（2026-05-25）
+
+### 12.1 新增 Linux 构建
+- **文件**: `build_package.ps1`
+- 新增 `Build-Linux` 函数：`flutter build linux --release`
+- 输出到 `build/linux/x64/release/bundle/`，自动拷贝后端 JAR
+
+### 12.2 新增 macOS 构建
+- **文件**: `build_package.ps1`
+- 新增 `Build-MacOS` 函数：`flutter build macos --release`
+- 自动查找 `.app` bundle，将 JAR 拷贝至 `Contents/Resources/backend/`
+
+### 12.3 新增 iOS 构建
+- **文件**: `build_package.ps1`
+- 新增 `Build-iOS` 函数：`flutter build ios --release --no-codesign`
+- 检测 `$IsMacOS` 环境，非 macOS 时给出错误提示
+- 末尾提示 IPA 打包命令（需 Apple Developer 证书）
+
+### 12.4 新增 desktop / all 目标
+- **文件**: `build_package.ps1`
+- `-Target desktop`：一次构建 Windows + Linux + macOS 三桌面平台
+- `-Target all`：构建全部五平台（Windows + Linux + macOS + Android + iOS）
+- 智能跳过 JAR 构建：Android / iOS 构建时自动跳过 Gradle 步骤
+- 参数验证集扩展为：`windows`, `android`, `linux`, `macos`, `ios`, `all`, `desktop`
+
+---
+
 ## 一、存储路径与权限
 
 ### 1.1 默认路径改为自有目录
