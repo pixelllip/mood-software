@@ -44,9 +44,6 @@ data class AddScoreRequest(
 )
 
 @Serializable
-data class DeleteScoreRequest(val id: String? = null, val name: String? = null)
-
-@Serializable
 data class ScheduleRequest(
     val tasks: String? = null,
     val city: String? = null,
@@ -142,7 +139,7 @@ fun Application.module() {
             println(">>> 收到聊天请求")
             val data = try {
                 call.receive<ChatRequest>()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 call.respond(ErrorResponse(error = "No valid JSON data"))
                 return@post
             }
@@ -155,7 +152,7 @@ fun Application.module() {
 
             println(">>> 用户消息: $prompt")
 
-            // 如果传入了历史消息，加载到 backlog（跳过 system，且不 resetPath 防止重复文件）
+            // 如果传入了历史消息，加载到 backlog（不 resetPath 防止重复文件）
             if (data.history != null && data.history.isNotEmpty()) {
                 agent.backlog.messages.clear()
                 data.history.forEach { msg ->
@@ -164,7 +161,7 @@ fun Application.module() {
                     when (role) {
                         "user" -> agent.backlog.appendUserText(content)
                         "assistant" -> agent.backlog.appendAssistantText(content)
-                        // "system" 跳过，不存入 backlog
+                        "system" -> agent.backlog.appendSystemText(content)
                     }
                 }
                 // 沿用已有 path，追加到同一个文件；首次对话则新建 path
@@ -211,7 +208,7 @@ fun Application.module() {
         post("/add") {
             val data = try {
                 call.receive<AddScoreRequest>()
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 call.respond(ErrorResponse(error = "No valid JSON data"))
                 return@post
             }
@@ -245,7 +242,7 @@ fun Application.module() {
             try {
                 val data = try {
                     call.receive<ScheduleRequest>()
-                } catch (e: Exception) {
+                } catch (_: Exception) {
                     call.respond(ErrorResponse(error = "No valid JSON data"))
                     return@post
                 }

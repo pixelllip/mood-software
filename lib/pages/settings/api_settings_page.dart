@@ -500,12 +500,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
           style: TextStyle(fontSize: 12, color: Colors.grey),
         ),
         const SizedBox(height: 12),
-        _buildTextField(_gaodeKeyController, "高德地图 API Key", obscure: true),
-        const SizedBox(height: 4),
-        const Text(
-          "用于 GPS 定位逆编码获取详细地址信息",
-          style: TextStyle(fontSize: 11, color: Colors.grey),
-        ),
+        _buildTextField(_gaodeKeyController, "高德地图 API Key（用于查询天气）", obscure: true),
       ],
     );
   }

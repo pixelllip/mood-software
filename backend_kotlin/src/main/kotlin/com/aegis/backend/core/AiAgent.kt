@@ -1,8 +1,6 @@
 package com.aegis.backend.core
 
 import com.aegis.backend.tools.AgentTools
-import com.aegis.backend.tools.toMap
-import kotlinx.serialization.json.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -21,7 +19,7 @@ class AiAgent {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    val backlog = Backlog()
+    val backlog = Backlog(null)
     val tool = AgentTools()
     val instructions = Instructions()
     private val _chatting = AtomicBoolean(false)
@@ -40,6 +38,7 @@ class AiAgent {
     /**
      * 非流式聊天
      */
+    @Suppress("unused")
     fun chat(userInput: String): String {
         backlog.appendUserText(userInput)
 
@@ -229,7 +228,17 @@ class AiAgent {
             messages.add(mapOf("role" to "system", "content" to instructions.content))
         }
 
-        messages.addAll(backlog.messages.map { mapOf("role" to it.role, "content" to it.content) })
+        // 将 backlog 中的消息加入（优先加入 system 消息作为额外上下文，如定位信息）
+        val systemMsgs = backlog.messages.filter { it.role == "system" }
+        for (sysMsg in systemMsgs) {
+            messages.add(mapOf("role" to "system", "content" to sysMsg.content))
+        }
+        // 加入 user/assistant 消息
+        messages.addAll(
+            backlog.messages
+                .filter { it.role != "system" }
+                .map { mapOf("role" to it.role, "content" to it.content) }
+        )
         return messages
     }
 

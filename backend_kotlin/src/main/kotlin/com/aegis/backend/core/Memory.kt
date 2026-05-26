@@ -1,13 +1,12 @@
 package com.aegis.backend.core
 
-import com.aegis.backend.tools.toMap
+import com.aegis.backend.tools.*
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.time.LocalDate
-import java.time.LocalTime
-import java.time.format.DateTimeFormatter
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * 对话历史记录管理 (Backlog)
@@ -19,10 +18,6 @@ class Backlog {
 
     /** 标记 path 是否已设置（用于外部判断，避免 ::path.isInitialized 跨对象问题） */
     val hasPath: Boolean get() = this::path.isInitialized
-
-    constructor() {
-        // path 会在第一次 writeText 时根据当前时间设置
-    }
 
     constructor(text: List<ChatMessage>?) {
         messages = text?.toMutableList() ?: mutableListOf()
@@ -36,11 +31,16 @@ class Backlog {
         messages.add(ChatMessage(role = "assistant", content = text))
     }
 
+    fun appendSystemText(text: String) {
+        messages.add(ChatMessage(role = "system", content = text))
+    }
+
     fun getText(): List<ChatMessage> = messages
 
     fun resetPath() {
-        val dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"))
-        val timeStr = LocalTime.now().format(DateTimeFormatter.ofPattern("HH-mm-ss"))
+        val now = Date()
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now)
+        val timeStr = SimpleDateFormat("HH-mm-ss", Locale.US).format(now)
         val backlogDir = File(EnvConfig.basePath, "Backlog/$dateStr")
         backlogDir.mkdirs()
         path = File(backlogDir, "$timeStr.json")
@@ -148,6 +148,7 @@ class Instructions {
         }
     }
 
+    @Suppress("unused")
     fun writeInstructions(newInstructions: String) {
         path.writeText(newInstructions, Charsets.UTF_8)
         content = newInstructions
@@ -209,8 +210,10 @@ object EnvConfig {
 
     val dashscopeApiKey: String by lazy { ensureLoaded(); (_config["DASHSCOPE_API_KEY"] as? String) ?: "" }
 
+    @Suppress("unused")
     val studentId: String by lazy { ensureLoaded(); (_config["STUDENT_ID"] as? String) ?: "" }
 
+    @Suppress("unused")
     val studentName: String by lazy { ensureLoaded(); (_config["STUDENT_NAME"] as? String) ?: "" }
 
     // ========== AI_CONFIGS 支持 ==========

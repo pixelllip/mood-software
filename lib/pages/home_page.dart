@@ -608,6 +608,20 @@ class _HomeContentState extends State<HomeContent>
     int aiMsgIndex = _messages.length - 1;
 
     try {
+      // 🌍 获取当前城市定位信息（GPS优先→IP定位→默认值）
+      String cityInfoStr = '未知位置,000000';
+      String? gpsHint;
+      try {
+        cityInfoStr = await LocationService.getCityInfoForAi();
+        gpsHint = LocationService.gpsCoordsHint;
+        debugPrint(">>> 定位城市信息: $cityInfoStr, GPS坐标: ${gpsHint ?? '无'}");
+      } catch (e) {
+        debugPrint(">>> 获取定位失败（不影响AI回复）: $e");
+      }
+      final parts = cityInfoStr.split(',');
+      final cityName = parts.isNotEmpty ? parts[0] : '未知位置';
+      final cityAdcode = parts.length > 1 ? parts[1] : '000000';
+
       // 构建历史上下文发送给后端
       List<Map<String, String>> historyToSend = [];
       for (int i = 0; i < _messages.length - 1; i++) {
@@ -632,13 +646,18 @@ class _HomeContentState extends State<HomeContent>
           return;
         }
 
-        // 构建消息列表（含系统提示）
+        // 构建消息列表（含系统提示和定位信息）
+        final locationLine = gpsHint != null && cityName == '未知位置'
+            ? "【用户位置】GPS坐标: $gpsHint（城市名解析失败）"
+            : "【用户当前城市】$cityName（城市编码：$cityAdcode）";
         final apiMessages = [
           {
             "role": "system",
             "content":
                 "你是一个智能学习助手'星火学伴'。请用自然、友好的中文回答用户的问题。"
-                "当回答涉及成绩、天气等数据时，要用通俗的语言描述，不要返回原始数据格式。",
+                "当回答涉及成绩、天气等数据时，要用通俗的语言描述，不要返回原始数据格式。"
+                "\n\n$locationLine"
+                "当用户询问天气、路况等需要位置信息的问题时，请使用上述信息。",
           },
           ...historyToSend,
         ];
@@ -680,12 +699,21 @@ class _HomeContentState extends State<HomeContent>
             : firstUserMsg;
         saveBacklog(messages: backlogMessages, summary: summary);
       } else {
-        // 💻 PC 模式：通过本地后端
+        // 💻 PC 模式：通过本地后端（附带定位信息）
         debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
+
+        // 在历史消息开头插入一条定位 system 消息，让后端 AI 知道用户所在城市
+        final locationLine = gpsHint != null && cityName == '未知位置'
+            ? "用户当前GPS坐标: $gpsHint（城市名解析失败）"
+            : "用户当前所在城市：$cityName（城市编码：$cityAdcode）";
+        final historyWithLocation = [
+          {"role": "system", "content": locationLine},
+          ...historyToSend,
+        ];
 
         final response = await widget.dio.post(
           "/chat",
-          data: {"prompt": text, "history": historyToSend},
+          data: {"prompt": text, "history": historyWithLocation},
           options: Options(responseType: ResponseType.stream),
         );
 
@@ -991,7 +1019,7 @@ class _HomeContentState extends State<HomeContent>
                                     height: 44,
                                     decoration: BoxDecoration(
                                       color: isDark
-                                          ? Colors.purple.shade100
+                                          ? Colors.indigo.shade400
                                           : Theme.of(
                                               context,
                                             ).colorScheme.primaryContainer,

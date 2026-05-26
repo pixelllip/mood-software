@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
+import 'package:file_selector/file_selector.dart';
 import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/pages/settings/api_settings_page.dart';
 
@@ -80,9 +80,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     final navigator = Navigator.of(context);
     try {
-      final result = await FilePicker.getDirectoryPath(
-        dialogTitle: "选择数据存储文件夹",
-      );
+      final result = await getDirectoryPath();
       if (result == null || !mounted) return;
 
       if (Platform.isAndroid) {
