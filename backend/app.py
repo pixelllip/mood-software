@@ -152,9 +152,19 @@ def schedule():
 
         # 1. 获取天气
         print(f"[{time.time()-start_time:.2f}s] 正在请求天气...")
-        weather_raw = agent.tool.get_weather(city)
-        weather = organizer._summarize_weather(weather_raw)
-        weather_info = f"状况: {weather.weather}, 温度: {weather.temperature}°C, 风力: {weather.wind}"
+        weather_info = "暂无天气数据"
+        try:
+            weather_raw = agent.tool.get_weather(city)
+            if weather_raw and isinstance(weather_raw, dict) and weather_raw.get('lives'):
+                weather = organizer._summarize_weather(weather_raw)
+                temp_str = f"{weather.temperature}°C" if weather.temperature is not None else "未知"
+                wind_str = weather.wind if weather.wind else "未知"
+                weather_info = f"状况: {weather.weather}, 温度: {temp_str}, 风力: {wind_str}"
+                print(f">>> 天气获取成功: {weather_info}")
+            else:
+                print(f">>> 天气接口返回异常: {weather_raw}")
+        except Exception as we:
+            print(f">>> 获取天气失败(不影响生成): {we}")
         
         # 2. 获取路况
         print(f"[{time.time()-start_time:.2f}s] 正在请求路况...")

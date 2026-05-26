@@ -4,6 +4,9 @@ cd backend_kotlin
 ./gradlew buildFatJar
 ```
 
+### 请下载nuget.exe，将它放置于C:/Windows/System32下，
+否则Flutter的GPS插件将无法编译。
+
 ### 打包 Windows（自动 build fatjar + 复制 + build flutter）
 ```
 .\build_package.ps1 -Target windows

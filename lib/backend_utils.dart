@@ -199,6 +199,35 @@ Future<bool> startBackend(int port) async {
 /// Windows 上启动 Kotlin 后端（优先使用 JAR，否则 Gradle 编译+运行）
 Future<bool> _startBackendWindows(int port) async {
   try {
+    // 先尝试释放被占用的端口
+    try {
+      final result = await Process.run('netstat', [
+        '-ano',
+        '|',
+        'findstr',
+        ':$port',
+      ], runInShell: true);
+      if (result.exitCode == 0 && result.stdout.toString().isNotEmpty) {
+        // 解析 PID 并 kill
+        final lines = result.stdout.toString().split('\n');
+        for (final line in lines) {
+          final parts = line.trim().split(RegExp(r'\s+'));
+          if (parts.length >= 5) {
+            final pid = parts.last;
+            if (pid.isNotEmpty && int.tryParse(pid) != null) {
+              await Process.run('taskkill', [
+                '/F',
+                '/PID',
+                pid,
+              ], runInShell: true);
+              debugPrint(">>> 已释放端口 $port (进程 PID: $pid)");
+            }
+          }
+        }
+      }
+    } catch (_) {
+      // 不阻塞启动流程
+    }
     // 查找 JAR 的优先级：
     // 1. 可执行文件同目录下的 backend/ai_agent_backend.jar（发布版）
     // 2. 项目开发目录下的 backend_kotlin/build/libs/ai_agent_backend.jar（开发版）

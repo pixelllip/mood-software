@@ -10,6 +10,7 @@ import 'package:ai_agent/history_page.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:ai_agent/local_backend.dart';
+import 'package:ai_agent/location_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class MyHomePage extends StatefulWidget {
@@ -35,7 +36,6 @@ class _MyHomePageState extends State<MyHomePage> {
   int selectedIndex = 0;
   final GlobalKey<_HomeContentState> _homeContentKey =
       GlobalKey<_HomeContentState>();
-  late final PageController _pageController;
 
   String userID = "未知学号";
   String userName = "未知用户";
@@ -47,14 +47,7 @@ class _MyHomePageState extends State<MyHomePage> {
   @override
   void initState() {
     super.initState();
-    _pageController = PageController(initialPage: 0);
     _loadUserInfo();
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
   }
 
   Future<void> _loadUserInfo() async {
@@ -96,11 +89,16 @@ class _MyHomePageState extends State<MyHomePage> {
   }
 
   void onItemTapped(int index) {
-    _pageController.jumpToPage(index);
+    if (index == selectedIndex) return;
+    // 切换页面时取消所有TextField焦点（收起键盘，防止手机端输入框保持选中）
+    FocusScope.of(context).unfocus();
     setState(() {
+      _displayedIndex = index;
       selectedIndex = index;
     });
   }
+
+  int _displayedIndex = 0; // AppBar实际显示的标题索引
 
   Widget buildDrawer() {
     final bool isDark = Theme.of(context).brightness == Brightness.dark;
@@ -239,9 +237,9 @@ class _MyHomePageState extends State<MyHomePage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          selectedIndex == 0
+          _displayedIndex == 0
               ? (_chatTabIndex == 1 ? "聊天历史" : (_currentChatSummary ?? "AI聊天"))
-              : pageTitles[selectedIndex],
+              : pageTitles[_displayedIndex],
         ),
         backgroundColor: Theme.of(context).colorScheme.inversePrimary,
         actions: [
@@ -302,9 +300,9 @@ class _MyHomePageState extends State<MyHomePage> {
                     child: Column(
                       children: [
                         Expanded(child: buildRail()),
-                        // 主题切换
+                        // 主题切换（图标靠上，文字上边沿对齐底部导航栏上边沿）
                         SizedBox(
-                          height: 56,
+                          height: 72,
                           child: InkWell(
                             onTap: () {
                               final next =
@@ -316,8 +314,9 @@ class _MyHomePageState extends State<MyHomePage> {
                               _saveThemeMode(next);
                             },
                             child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisAlignment: MainAxisAlignment.start,
                               children: [
+                                const SizedBox(height: 10),
                                 Icon(
                                   Theme.of(context).brightness ==
                                           Brightness.dark
@@ -339,9 +338,9 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                           ),
                         ),
-                        // 设置
+                        // 设置（与底部导航栏对齐，底部留安全边距）
                         SizedBox(
-                          height: 48,
+                          height: 66,
                           child: InkWell(
                             onTap: () async {
                               await Navigator.push(
@@ -374,20 +373,17 @@ class _MyHomePageState extends State<MyHomePage> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        // 底部安全距离，防止设置触底
+                        SizedBox(
+                          height: MediaQuery.of(context).padding.bottom + 4,
+                        ),
                       ],
                     ),
                   ),
           ),
           Expanded(
-            child: PageView(
-              physics: const NeverScrollableScrollPhysics(),
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() {
-                  selectedIndex = index;
-                });
-              },
+            child: IndexedStack(
+              index: selectedIndex,
               children: [
                 HomeContent(
                   key: _homeContentKey,
@@ -457,6 +453,7 @@ class _HomeContentState extends State<HomeContent>
   ];
   final TextEditingController _controller = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _inputFocusNode = FocusNode();
 
   /// 当前提问是否涉及地图/位置相关
   bool _isMapQuery = false;
@@ -636,7 +633,12 @@ class _HomeContentState extends State<HomeContent>
 
         // 构建消息列表（含系统提示）
         final apiMessages = [
-          {"role": "system", "content": "你是一个 helpful 的 AI 学习助手。"},
+          {
+            "role": "system",
+            "content":
+                "你是一个智能学习助手'星火学伴'。请用自然、友好的中文回答用户的问题。"
+                "当回答涉及成绩、天气等数据时，要用通俗的语言描述，不要返回原始数据格式。",
+          },
           ...historyToSend,
         ];
 
@@ -708,18 +710,64 @@ class _HomeContentState extends State<HomeContent>
     }
   }
 
+  /// 是否显示"滚动到底部"按钮
+  bool _showScrollToBottom = false;
+
   /// AI聊天内部 Tab 控制器（0=聊天, 1=历史）
   late final TabController _chatTabController;
+
+  /// 记录上次通知父级的tab索引，避免动画过半时重复通知
+  int _lastNotifiedChatTab = 0;
 
   @override
   void initState() {
     super.initState();
     _chatTabController = TabController(length: 2, vsync: this);
-    _chatTabController.addListener(() {
-      if (!_chatTabController.indexIsChanging) {
+    _chatTabController.addListener(_onChatTabChanged);
+    // 监听滚动位置，控制"返回底部"按钮的显隐
+    _scrollController.addListener(_onScrollChanged);
+    // PC端自动聚焦输入框，手机端不聚焦
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _inputFocusNode.requestFocus();
+      });
+    }
+  }
+
+  /// Tab切换时通知父级更新AppBar
+  /// - 聊天→历史：动画一开始就更新
+  /// - 历史→聊天：动画完全结束后才更新
+  void _onChatTabChanged() {
+    if (!_chatTabController.indexIsChanging) {
+      // 动画结束 → 无论方向都更新
+      if (_lastNotifiedChatTab != _chatTabController.index) {
+        _lastNotifiedChatTab = _chatTabController.index;
         widget.onChatTabChanged?.call(_chatTabController.index);
       }
-    });
+    } else {
+      // 动画进行中 → 仅聊天→历史方向(0→1)时提前更新
+      final targetIndex = _chatTabController.index;
+      final fromIndex = _chatTabController.previousIndex;
+      if (fromIndex == 0 &&
+          targetIndex == 1 &&
+          targetIndex != _lastNotifiedChatTab) {
+        _lastNotifiedChatTab = targetIndex;
+        widget.onChatTabChanged?.call(targetIndex);
+      }
+    }
+  }
+
+  void _onScrollChanged() {
+    if (!_scrollController.hasClients) return;
+    final maxScroll = _scrollController.position.maxScrollExtent;
+    final currentScroll = _scrollController.position.pixels;
+    // 距离底部超过100px时显示按钮
+    final shouldShow = maxScroll - currentScroll > 100;
+    if (shouldShow != _showScrollToBottom) {
+      setState(() {
+        _showScrollToBottom = shouldShow;
+      });
+    }
   }
 
   @override
@@ -736,160 +784,241 @@ class _HomeContentState extends State<HomeContent>
                 child: Column(
                   children: [
                     Expanded(
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.only(
-                          left: 16,
-                          right: 16,
-                          top: 16,
-                          bottom: 8,
-                        ),
-                        itemCount: _messages.length,
-                        itemBuilder: (context, index) {
-                          final msg = _messages[index];
-                          final isUser = msg["isUser"] as bool;
-                          final isLastAiMsg =
-                              !isUser && index == _messages.length - 1;
-                          return Align(
-                            alignment: isUser
-                                ? Alignment.centerRight
-                                : Alignment.centerLeft,
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(vertical: 8),
-                              padding: const EdgeInsets.only(
-                                left: 16,
-                                right: 16,
-                                top: 10,
-                                bottom: 6,
-                              ),
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width * 0.7,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isUser
-                                    ? Theme.of(context).primaryColor
-                                    : (isDark
-                                          ? Colors.grey.shade800
-                                          : Colors.grey.shade200),
-                                borderRadius: BorderRadius.only(
-                                  topLeft: const Radius.circular(16),
-                                  topRight: const Radius.circular(16),
-                                  bottomLeft: Radius.circular(isUser ? 16 : 0),
-                                  bottomRight: Radius.circular(isUser ? 0 : 16),
-                                ),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  MarkdownBody(
-                                    data: msg["text"],
-                                    selectable: true,
-                                    styleSheet: MarkdownStyleSheet(
-                                      p: TextStyle(
-                                        color: isUser
-                                            ? Colors.white
-                                            : (isDark
-                                                  ? const Color(0xFFE0E0E0)
-                                                  : Colors.black87),
-                                        fontSize: 16,
+                      child: Stack(
+                        children: [
+                          ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.only(
+                              left: 16,
+                              right: 16,
+                              top: 16,
+                              bottom: 8,
+                            ),
+                            itemCount: _messages.length,
+                            itemBuilder: (context, index) {
+                              final msg = _messages[index];
+                              final isUser = msg["isUser"] as bool;
+                              final isLastAiMsg =
+                                  !isUser && index == _messages.length - 1;
+                              return Align(
+                                alignment: isUser
+                                    ? Alignment.centerRight
+                                    : Alignment.centerLeft,
+                                child: Container(
+                                  margin: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                  padding: const EdgeInsets.only(
+                                    left: 16,
+                                    right: 16,
+                                    top: 10,
+                                    bottom: 6,
+                                  ),
+                                  constraints: BoxConstraints(
+                                    maxWidth:
+                                        MediaQuery.of(context).size.width * 0.7,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: isUser
+                                        ? (isDark
+                                              ? Theme.of(
+                                                  context,
+                                                ).colorScheme.primaryContainer
+                                              : Theme.of(context).primaryColor)
+                                        : (isDark
+                                              ? Colors.grey.shade800
+                                              : Colors.grey.shade200),
+                                    borderRadius: BorderRadius.only(
+                                      topLeft: const Radius.circular(16),
+                                      topRight: const Radius.circular(16),
+                                      bottomLeft: Radius.circular(
+                                        isUser ? 16 : 0,
                                       ),
-                                      listBullet: TextStyle(
-                                        color: isUser
-                                            ? Colors.white70
-                                            : (isDark
-                                                  ? const Color(0xFF9E9E9E)
-                                                  : Colors.black54),
-                                      ),
-                                      code: TextStyle(
-                                        backgroundColor: isDark
-                                            ? const Color(0xFF1E1E1E)
-                                            : Colors.grey.shade100,
-                                        color: isDark
-                                            ? const Color(0xFF6A9955)
-                                            : Colors.black87,
-                                        fontSize: 14,
-                                      ),
-                                      codeblockDecoration: BoxDecoration(
-                                        color: isDark
-                                            ? const Color(0xFF1E1E1E)
-                                            : Colors.grey.shade100,
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      h1: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFE0E0E0)
-                                            : Colors.black87,
-                                      ),
-                                      h2: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFE0E0E0)
-                                            : Colors.black87,
-                                      ),
-                                      h3: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFE0E0E0)
-                                            : Colors.black87,
-                                      ),
-                                      a: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFF64B5F6)
-                                            : Colors.blue,
-                                      ),
-                                      strong: TextStyle(
-                                        color: isUser
-                                            ? Colors.white
-                                            : (isDark
-                                                  ? const Color(0xFFE0E0E0)
-                                                  : Colors.black87),
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                      blockquote: TextStyle(
-                                        color: isDark
-                                            ? const Color(0xFFBDBDBD)
-                                            : Colors.black54,
+                                      bottomRight: Radius.circular(
+                                        isUser ? 0 : 16,
                                       ),
                                     ),
                                   ),
-                                  if (isLastAiMsg && _isMapQuery)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: SizedBox(
-                                        width: double.infinity,
-                                        child: OutlinedButton.icon(
-                                          onPressed: _openAmap,
-                                          icon: const Icon(Icons.map, size: 16),
-                                          label: const Text(
-                                            "在地图中查看",
-                                            style: TextStyle(fontSize: 13),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      MarkdownBody(
+                                        data: msg["text"],
+                                        selectable: true,
+                                        styleSheet: MarkdownStyleSheet(
+                                          p: TextStyle(
+                                            color: isUser
+                                                ? (isDark
+                                                      ? Theme.of(context)
+                                                            .colorScheme
+                                                            .onPrimaryContainer
+                                                      : Colors.white)
+                                                : (isDark
+                                                      ? const Color(0xFFE0E0E0)
+                                                      : Colors.black87),
+                                            fontSize: 16,
                                           ),
-                                          style: OutlinedButton.styleFrom(
-                                            foregroundColor: const Color(
-                                              0xFFFF6A00,
+                                          listBullet: TextStyle(
+                                            color: isUser
+                                                ? (isDark
+                                                      ? Theme.of(context)
+                                                            .colorScheme
+                                                            .onPrimaryContainer
+                                                            .withValues(
+                                                              alpha: 0.7,
+                                                            )
+                                                      : Colors.white70)
+                                                : (isDark
+                                                      ? const Color(0xFF9E9E9E)
+                                                      : Colors.black54),
+                                          ),
+                                          code: TextStyle(
+                                            backgroundColor: isDark
+                                                ? const Color(0xFF1E1E1E)
+                                                : Colors.grey.shade100,
+                                            color: isDark
+                                                ? const Color(0xFF6A9955)
+                                                : Colors.black87,
+                                            fontSize: 14,
+                                          ),
+                                          codeblockDecoration: BoxDecoration(
+                                            color: isDark
+                                                ? const Color(0xFF1E1E1E)
+                                                : Colors.grey.shade100,
+                                            borderRadius: BorderRadius.circular(
+                                              8,
                                             ),
-                                            side: const BorderSide(
-                                              color: Color(0xFFFF6A00),
-                                            ),
-                                            shape: RoundedRectangleBorder(
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
-                                            ),
-                                            padding: const EdgeInsets.symmetric(
-                                              vertical: 6,
-                                            ),
-                                            minimumSize: const Size(0, 32),
-                                            visualDensity:
-                                                VisualDensity.compact,
+                                          ),
+                                          h1: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE0E0E0)
+                                                : Colors.black87,
+                                          ),
+                                          h2: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE0E0E0)
+                                                : Colors.black87,
+                                          ),
+                                          h3: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFE0E0E0)
+                                                : Colors.black87,
+                                          ),
+                                          a: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFF64B5F6)
+                                                : Colors.blue,
+                                          ),
+                                          strong: TextStyle(
+                                            color: isUser
+                                                ? (isDark
+                                                      ? Theme.of(context)
+                                                            .colorScheme
+                                                            .onPrimaryContainer
+                                                      : Colors.white)
+                                                : (isDark
+                                                      ? const Color(0xFFE0E0E0)
+                                                      : Colors.black87),
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                          blockquote: TextStyle(
+                                            color: isDark
+                                                ? const Color(0xFFBDBDBD)
+                                                : Colors.black54,
                                           ),
                                         ),
                                       ),
+                                      if (isLastAiMsg && _isMapQuery)
+                                        Padding(
+                                          padding: const EdgeInsets.only(
+                                            top: 8,
+                                          ),
+                                          child: SizedBox(
+                                            width: double.infinity,
+                                            child: OutlinedButton.icon(
+                                              onPressed: _openAmap,
+                                              icon: const Icon(
+                                                Icons.map,
+                                                size: 16,
+                                              ),
+                                              label: const Text(
+                                                "在地图中查看",
+                                                style: TextStyle(fontSize: 13),
+                                              ),
+                                              style: OutlinedButton.styleFrom(
+                                                foregroundColor: const Color(
+                                                  0xFFFF6A00,
+                                                ),
+                                                side: const BorderSide(
+                                                  color: Color(0xFFFF6A00),
+                                                ),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(10),
+                                                ),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      vertical: 6,
+                                                    ),
+                                                minimumSize: const Size(0, 32),
+                                                visualDensity:
+                                                    VisualDensity.compact,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          // "返回底部"浮动按钮（横向与发送按钮对齐）
+                          if (_showScrollToBottom)
+                            Positioned(
+                              right: 16,
+                              bottom: 0,
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () => _scrollToBottom(),
+                                  borderRadius: BorderRadius.circular(24),
+                                  child: Container(
+                                    width: 44,
+                                    height: 44,
+                                    decoration: BoxDecoration(
+                                      color: isDark
+                                          ? Colors.purple.shade100
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.primaryContainer,
+                                      shape: BoxShape.circle,
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                          blurRadius: 8,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ],
                                     ),
-                                ],
+                                    child: Icon(
+                                      Icons.arrow_downward,
+                                      color: isDark
+                                          ? Colors.black87
+                                          : Theme.of(
+                                              context,
+                                            ).colorScheme.onPrimaryContainer,
+                                      size: 22,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
-                          );
-                        },
+                        ],
                       ),
                     ),
                     Container(
@@ -912,6 +1041,7 @@ class _HomeContentState extends State<HomeContent>
                           Expanded(
                             child: TextField(
                               controller: _controller,
+                              focusNode: _inputFocusNode,
                               decoration: InputDecoration(
                                 hintText: "给AI发送消息...",
                                 // 1. 开启填充色，让输入框区域在深色背景下有一个微亮的底色
@@ -1023,6 +1153,7 @@ class _HomeContentState extends State<HomeContent>
     _chatTabController.dispose();
     _controller.dispose();
     _scrollController.dispose();
+    _inputFocusNode.dispose();
     super.dispose();
   }
 }
@@ -1622,9 +1753,9 @@ class _ScorePageState extends State<ScorePage>
               width: double.infinity,
               height: 50,
               child: ElevatedButton.icon(
-                icon: const Icon(Icons.search),
+                icon: const Icon(Icons.add_circle_outline),
                 onPressed: _submitAddData,
-                label: const Text('查询成绩'),
+                label: const Text('添加成绩'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Theme.of(context).primaryColor,
                   foregroundColor: Colors.white,
@@ -1904,19 +2035,28 @@ class _SchedulePageState extends State<SchedulePage>
   List<String> _availableSubjects = [];
   final Set<String> _selectedWeakSubjects = {};
   bool _isFetchingSubjects = false;
+  bool _hasBeenActivated = false; // 首次激活标记
 
   @override
   void initState() {
     super.initState();
     _scheduleTabController = TabController(length: 2, vsync: this);
-    Future.microtask(() => _fetchUserSubjects());
   }
 
   @override
   void didUpdateWidget(SchedulePage oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    // 如果身份信息发生变化，重置并刷新学科列表和日程
+    // 首次激活或从其他页切换过来时刷新
+    final isNowActive = widget.isActive;
+    final wasActive = oldWidget.isActive;
+    if (isNowActive && (!wasActive || !_hasBeenActivated)) {
+      _hasBeenActivated = true;
+      _fetchSavedSchedule();
+      _fetchUserSubjects();
+    }
+
+    // 如果身份信息发生变化，重置并刷新
     if (widget.studentID != oldWidget.studentID ||
         widget.studentName != oldWidget.studentName) {
       setState(() {
@@ -1925,17 +2065,10 @@ class _SchedulePageState extends State<SchedulePage>
         _itinerary = "";
         _summary = "";
       });
-
-      // 只有在当前页面是激活状态（被点击选中）时，身份变化才触发加载
-      if (widget.isActive) {
+      if (isNowActive) {
         _fetchSavedSchedule();
         _fetchUserSubjects();
       }
-    }
-    // 或者：从其他页面切换到当前日程页面时触发加载
-    else if (widget.isActive && !oldWidget.isActive) {
-      _fetchSavedSchedule();
-      _fetchUserSubjects();
     }
   }
 
@@ -2103,6 +2236,37 @@ class _SchedulePageState extends State<SchedulePage>
           throw 'AI 配置不完整，请先在设置中配置 AI 服务';
         }
 
+        // 获取城市和天气信息（让日程更准确）
+        String? weatherInfo;
+        try {
+          final cityAdcode = await LocationService.getCityAdcode();
+          final config = await loadConfigFile();
+          final gaodeKey = config['Gaode_API_Key']?.toString() ?? '';
+          if (gaodeKey.isNotEmpty) {
+            final dio = Dio();
+            final weatherRes = await dio.get(
+              'https://restapi.amap.com/v3/weather/weatherInfo',
+              queryParameters: {
+                'city': cityAdcode,
+                'key': gaodeKey,
+                'extensions': 'base',
+              },
+            );
+            if (weatherRes.data is Map &&
+                weatherRes.data['lives'] is List &&
+                (weatherRes.data['lives'] as List).isNotEmpty) {
+              final live = (weatherRes.data['lives'] as List)[0];
+              weatherInfo =
+                  '城市: ${live['city']}, 天气: ${live['weather']}, '
+                  '温度: ${live['temperature']}°C, 风向: ${live['winddirection']}, '
+                  '风力: ${live['windpower']}级, 湿度: ${live['humidity']}%';
+              debugPrint(">>> 获取到实时天气: $weatherInfo");
+            }
+          }
+        } catch (e) {
+          debugPrint(">>> 获取城市天气失败(不影响生成): $e");
+        }
+
         final result = await LocalScheduleService.generateSchedule(
           tasks: _taskController.text,
           date: dateStr,
@@ -2112,6 +2276,7 @@ class _SchedulePageState extends State<SchedulePage>
           studyWeaknesses: _includeStudyAdvice
               ? _selectedWeakSubjects.toList()
               : null,
+          weatherInfo: weatherInfo,
         );
 
         if (!mounted) return;

@@ -1,44 +1,27 @@
-## ✅ 已完成
+# ✅ 已完成
 
-### 1. 主题深浅颜色切换
-- 默认跟随系统主题
-- `main.dart`: 添加 `darkTheme`（深色主题）+ `themeMode` 控制
-- `backend_utils.dart`: 添加全局 `themeModeNotifier`（ValueNotifier）
-- 启动时从 `config.json` 的 `THEME_MODE` 字段读取用户偏好
-
-### 2. 设置页面新增深浅模式切换
-- `settings_page.dart`: 新增"主题模式"区域
-- 三个选项：跟随系统 / 浅色模式 / 深色模式（RadioListTile + 图标）
-- 保存时更新 `config.json` 并通知全局 `themeModeNotifier`
-
-### 3. AI 聊天底部导航栏
-- `home_page.dart`:
-  - 从 AppBar 移除"查看聊天历史"按钮
-  - 在输入框下方新增"聊天" | "历史" 导航栏（带选中指示器）
-  - 点击"历史"跳转到 HistoryPage，返回后自动切回"聊天"标签
-  - AI 回复气泡适配深色模式文字颜色
-
-### 4. 滑动切换 + 底部导航 + 成绩页导航栏移到底部
-- `home_page.dart`:
-  - 手机端 `IndexedStack` → `PageView`，支持左右滑动切换主页面
-  - 新增 `PageController`，与 `selectedIndex` 双向同步
-  - ScorePage 的 TabBar（查询/录入/删除）从顶部移到底部
-
-### 5. 聊天历史嵌入 AI 聊天界面 + 恢复3主页面
-- `home_page.dart`:
-  - **HomeContent 内部**新增 PageView（0=聊天, 1=历史），支持左右滑动切换
-  - 底部恢复"聊天"|"历史"导航栏，选中标签有主题色指示线
-  - 输入框仅在"聊天"标签下显示，"历史"标签全屏展示 HistoryPage
-  - **ScorePage** 的 `IndexedStack` → `TabBarView`，支持左右滑动切换查询/录入/删除
-  - 移除 `bottomNavigationBar`（不复现抽屉逻辑）
-  - **桌面端** `IndexedStack` → `PageView`，修复 NavigationRail 点击切换
-  - 主页面恢复为 3 个：AI聊天 → 我的成绩 → 日程安排
-  - 侧栏/抽屉**移除"聊天历史"** 条目（从 AI 聊天底部进入）
-  - `loadHistory` 自动切回聊天标签
-
-### 修改的文件
-- `lib/main.dart`
-- `lib/backend_utils.dart`
-- `lib/settings_page.dart`
-- `lib/home_page.dart`
-
+- [x] 深色模式下，用户对话气泡改用 `primaryContainer` 颜色，文字用 `onPrimaryContainer`，提高辨识度
+- [x] 手机端新增 `LocationService`（GPS原生定位 → 高德反地理编码 → IP定位 → 默认广州）
+- [x] 手机端日程生成前自动获取实时天气并传入 AI 提示词，杜绝瞎编天气
+- [x] 后端 AI 系统提示词强化，要求工具结果必须用自然语言重新组织回答
+- [x] 页面切换使用 `animateToPage` 动画，监听过50%进度时提前更新 AppBar 标题
+- [x] 聊天界面列表滚动监听，不在底部时显示"返回底部"浮动按钮，点击动画滚动到底部
+- [x] Chat/History Tab 切换时监听过半动画进度，提前更新 AppBar 标题和新建对话按钮
+- [x] 后端启动前自动检测端口占用并用 `taskkill` 释放，解决 `Address already in use`
+- [x] 桌面侧栏设置按钮改为 56px（与底部 TabBar 等高），移除底部多余间距，图标对齐
+- [x] 页面切换时调用 `FocusScope.unfocus()` 收起键盘，防止手机端 TextField 保持选中
+- [x] 侧边栏切换改用 `jumpToPage`（无动画直接跳转），保留动画代码仅用于抽屉等场景
+- [x] 页面级持久化 `_savedTextFields` 保存 TextField 内容，配合 `saveInputText` 方法在切页前保存
+- [x] 侧边栏主题按钮改为 72px（内容靠上，文字对齐底部TabBar上边沿），设置按钮改为 66px + 底部安全间距
+- [x] Chat/History Tab 切换：改用独立方法 `_onChatTabAnimation` 直接监听 `animation.addListener`，确保动画过半时准确触发 AppBar 更新
+- [x] 将 `PageView` 替换为 `IndexedStack`，所有子页面保持存活，TextFiled 内容、状态不会因切页丢失
+- [x] 移除废弃的 `_pageController`、`_onPageAnimation`（因替换为 IndexedStack 不再需要）
+- [x] 移除未使用的 `_savedTextFields` 字段及相关的 `saveInputText` 方法
+- [x] SchedulePage 新增 `_hasBeenActivated` 标记，首次激活立即执行刷新（`_fetchSavedSchedule` + `_fetchUserSubjects`）
+- [x] "新建对话"按钮条件 `selectedIndex == 0 && _chatTabIndex == 0`，仅AI聊天页+聊天tab时显示（已实现）
+- [x] AI聊天FAB已存在于 Stack 中（`_showScrollToBottom` 控制显隐 + Positioned 右下角定位），点击调用 `_scrollToBottom()` 动画滚动到底部
+- [x] Chat/History切换：`_onChatTabChanged` 不再区分动画状态、直接读取 `_chatTabController.index`（点击tab时index立即变为目标值），AppBar 动画一开始就更新
+- [x] FAB `Positioned(right: 16)` 与输入框右侧内边距对齐，横向与发送按钮对齐
+- [x] PC端自动聚焦：新增 `_inputFocusNode`，Windows/Linux/MacOS 下 `addPostFrameCallback` 内 `requestFocus()`；手机端不触发
+- [x] FAB深色模式改用 `Colors.orange.shade300` + `Colors.black87` 图标，与用户气泡 `primaryContainer` 区分开
+- [x] Chat/History切换不对称更新：`_onChatTabChanged` 中检测 `previousIndex`，聊天→历史(0→1)时动画一开始就更新AppBar，历史→聊天(1→0)时等待动画完全结束才更新

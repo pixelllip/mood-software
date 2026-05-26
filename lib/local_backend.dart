@@ -221,16 +221,22 @@ class LocalScheduleService {
     required String apiKey,
     required String model,
     List<String>? studyWeaknesses,
+    String? weatherInfo, // 可选：天气信息，不传则由AI自行处理
   }) async {
     final studyAdviceSection =
         (studyWeaknesses != null && studyWeaknesses.isNotEmpty)
         ? '\n【学习情况参考】：该学生薄弱学科：${studyWeaknesses.join(", ")}。请在日程中合理插入复习时间。\n'
         : '';
 
+    final weatherSection = (weatherInfo != null && weatherInfo.isNotEmpty)
+        ? '\n【实时天气参考】：$weatherInfo\n'
+        : '';
+
     final prompt =
         '''
 你是一个集成了天气和交通信息的智能日程规划专家。请为用户生成一份日程规划。
 【选定日期】：$date
+$weatherSection
 $studyAdviceSection
 【待办任务】：$tasks
 

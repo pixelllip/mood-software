@@ -79,6 +79,8 @@ class AiAgent:
             "你是一个功能强大的智能助手。你有权调用各种工具来帮助用户，"
             "例如查询天气（get_weather）、搜索网页（qwen_websearch）等。"
             "当用户的问题需要实时信息或特定功能时，请务必先调用对应的工具。"
+            "【重要】：工具返回的原始数据必须用自然语言重新组织后再回答用户，"
+            "禁止直接返回JSON或原始数据结构。要用通俗易懂的语言告诉用户结果。"
             "请用中文回答。"
         )
         messages = [
@@ -137,7 +139,9 @@ class AiAgent:
             "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n"
             "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n"
             "3. 你的回答应当简洁、友好且有用。\n"
-            "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition"
+            "4. 【重要】禁止编造工具返回的数据。如果工具返回空或失败，如实告知用户。\n"
+            "5. 【重要】禁止编造天气、路况、成绩等实时信息。如果工具未调用或调用失败，请明确告诉用户无法获取。\n"
+            "【当前可用工具】：get_weather（查天气，参数city=城市名或adcode）, get_traffic（查路况）, qwen_websearch（联网搜索）, image_recognition（图片识别）, locate_ip（IP定位）, query_score（查成绩）"
         )
         
         messages = [{"role": "system", "content": system_prompt}]
