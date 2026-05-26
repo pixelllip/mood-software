@@ -3,7 +3,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:ai_agent/backend_utils.dart';
-import 'package:ai_agent/api_settings_page.dart';
+import 'package:ai_agent/pages/settings/api_settings_page.dart';
 
 class SettingsPage extends StatefulWidget {
   final Dio dio;

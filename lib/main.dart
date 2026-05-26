@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:ai_agent/backend_utils.dart';
-import 'package:ai_agent/home_page.dart';
-import 'package:ai_agent/welcome.dart';
+import 'package:ai_agent/pages/home_page.dart';
+import 'package:ai_agent/pages/welcome.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';

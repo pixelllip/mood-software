@@ -4,13 +4,13 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
-import 'package:ai_agent/score_result_page.dart';
-import 'package:ai_agent/settings_page.dart';
-import 'package:ai_agent/history_page.dart';
+import 'package:ai_agent/pages/scores/score_result_page.dart';
+import 'package:ai_agent/pages/settings/settings_page.dart';
+import 'package:ai_agent/pages/history/history_page.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
-import 'package:ai_agent/local_backend.dart';
-import 'package:ai_agent/location_service.dart';
+import 'package:ai_agent/services/local_backend.dart';
+import 'package:ai_agent/services/location_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class MyHomePage extends StatefulWidget {
