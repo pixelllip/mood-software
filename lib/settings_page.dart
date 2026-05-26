@@ -221,7 +221,7 @@ class _SettingsPageState extends State<SettingsPage> {
     if (!mounted) return;
     final navigator = Navigator.of(context);
     try {
-      final result = await FilePicker.platform.getDirectoryPath(
+      final result = await FilePicker.getDirectoryPath(
         dialogTitle: "选择数据存储文件夹",
       );
       if (result == null || !mounted) return;
