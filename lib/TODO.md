@@ -26,7 +26,7 @@ build\windows\x64\runner\Release\
 build\app\outputs\flutter-apk\
 └── app-release.apk
 ```
-### 打包 Linux
+### 打包 Linux (Windows端无法打包Linux程序！)
 ```
 .\build_package.ps1 -Target linux
 ```
