@@ -10,6 +10,15 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // 🖥️ 桌面端（Windows/macOS/Linux）需要 JDK 环境来启动后端
+  if (!Platform.isAndroid && !Platform.isIOS) {
+    if (!await checkJdkAvailable()) {
+      await showJdkWarningDialog();
+      return;
+    }
+    debugPrint('>>> JDK 环境检测通过');
+  }
+
   final projectDir = await getProjectDirectory();
   if (!await projectDir.exists()) {
     await projectDir.create(recursive: true);

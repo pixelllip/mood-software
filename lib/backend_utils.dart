@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/widget_previews.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// 全局主题模式通知器（用于深浅色主题切换）
 final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
@@ -194,6 +196,87 @@ Future<bool> startBackend(int port) async {
     }
   }
   return true;
+}
+
+/// 检查 JDK 是否可用（桌面端启动后端前调用）
+Future<bool> checkJdkAvailable() async {
+  try {
+    final result = await Process.run('java', ['-version'], runInShell: true);
+    return result.exitCode == 0;
+  } catch (e) {
+    debugPrint(">>> JDK 检查失败: $e");
+    return false;
+  }
+}
+
+/// 显示 JDK 缺失警告弹窗并退出应用
+Future<void> showJdkWarningDialog() async {
+  final completer = Completer<void>();
+  final navigatorKey = GlobalKey<NavigatorState>();
+  runApp(
+    MaterialApp(
+      navigatorKey: navigatorKey,
+      debugShowCheckedModeBanner: false,
+      home: _JdkWarningScreen(onDismiss: () => completer.complete()),
+    ),
+  );
+  await completer.future;
+}
+
+/// JDK 缺失警告页面
+class _JdkWarningScreen extends StatefulWidget {
+  final VoidCallback onDismiss;
+  const _JdkWarningScreen({required this.onDismiss});
+  @override
+  State<_JdkWarningScreen> createState() => _JdkWarningScreenState();
+}
+
+class _JdkWarningScreenState extends State<_JdkWarningScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showDialog());
+  }
+
+  Future<void> _showDialog() async {
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text("环境检测"),
+        content: const Text(
+          "未检测到 JDK（Java Development Kit）环境，"
+          "无法启动本地后端服务。\n\n"
+          "请先安装 JDK 后重新运行本应用。",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              launchUrl(
+                Uri.parse(
+                  'https://www.oracle.com/java/technologies/downloads/',
+                ),
+                mode: LaunchMode.externalApplication,
+              );
+            },
+            child: const Text("前往 JDK 官方下载"),
+          ),
+          FilledButton(
+            onPressed: () {
+              widget.onDismiss();
+              exit(0);
+            },
+            child: const Text("确认"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: Center(child: CircularProgressIndicator()));
+  }
 }
 
 /// Windows 上启动 Kotlin 后端（优先使用 JAR，否则 Gradle 编译+运行）
@@ -649,26 +732,45 @@ Future<Map<String, Map<String, Map<String, dynamic>>>> loadBacklogForRange({
 
 /// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端居中）
 /// [bottomMargin] 可自定义底部间距：输入框页面用 142，仅导航栏用 82，无导航栏用 6
+/// 在屏幕底部浮动显示一条通知
+///
+/// [leftMargin] — 左边缘间距。当有侧边导航栏（如 NavigationRail）时传入导航栏宽度。
+///               默认 16（无侧栏，铺满宽度）。
+/// [bottomMargin] — 底部间距。当底部有输入栏等元件时传入其高度。
+///                  默认 6（无底部元件）。
 void showTopSnackBar(
   BuildContext context,
   String message, {
+  double leftMargin = 16,
   double bottomMargin = 6,
 }) {
-  final width = MediaQuery.of(context).size.width;
-  final bool sidebarVisible = width >= 450;
+  final padding = MediaQuery.of(context).padding;
   ScaffoldMessenger.of(context).clearSnackBars();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
       behavior: SnackBarBehavior.floating,
       margin: EdgeInsets.only(
-        bottom: bottomMargin,
-        left: sidebarVisible ? 96 : 16,
+        left: leftMargin,
         right: 16,
+        bottom: bottomMargin + padding.bottom,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       duration: const Duration(seconds: 3),
     ),
   );
+}
+
+@Preview()
+Widget jdkWarningPreview() {
+  return MaterialApp(
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(colorSchemeSeed: Colors.deepPurple, useMaterial3: true),
+    home: const _JdkWarningScreen(onDismiss: _previewDismiss),
+  );
+}
+
+void _previewDismiss() {
+  debugPrint(">>> [Preview] JDK 警告弹窗确认关闭");
 }

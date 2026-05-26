@@ -523,6 +523,7 @@ class _HomeContentState extends State<HomeContent>
           showTopSnackBar(
             context,
             "无法打开高德地图，请手动访问 ditu.amap.com",
+            leftMargin: 96,
             bottomMargin: 142,
           );
         }
@@ -1355,7 +1356,7 @@ class _ScorePageState extends State<ScorePage>
         errorMsg = e.toString();
       }
       if (mounted) {
-        showTopSnackBar(context, errorMsg, bottomMargin: 82);
+        showTopSnackBar(context, errorMsg, leftMargin: 96, bottomMargin: 82);
       }
     }
   }
@@ -1404,7 +1405,7 @@ class _ScorePageState extends State<ScorePage>
       }
 
       if (!mounted) return;
-      showTopSnackBar(context, "信息已成功添加到系统", bottomMargin: 82);
+      showTopSnackBar(context, "信息已成功添加到系统", leftMargin: 96, bottomMargin: 82);
 
       idController.clear();
       nameController.clear();
@@ -1417,7 +1418,7 @@ class _ScorePageState extends State<ScorePage>
       });
     } catch (e) {
       if (!mounted) return;
-      showTopSnackBar(context, "提交失败: $e", bottomMargin: 82);
+      showTopSnackBar(context, "提交失败: $e", leftMargin: 96, bottomMargin: 82);
     }
   }
 
@@ -1426,7 +1427,7 @@ class _ScorePageState extends State<ScorePage>
     final rawId = idController.text.trim();
     final rawName = nameController.text.trim();
     if (rawId.isEmpty && rawName.isEmpty) {
-      showTopSnackBar(context, "请输入学生ID或姓名", bottomMargin: 82);
+      showTopSnackBar(context, "请输入学生ID或姓名", leftMargin: 96, bottomMargin: 82);
       return;
     }
 
@@ -1472,7 +1473,7 @@ class _ScorePageState extends State<ScorePage>
     } catch (e) {
       if (!mounted) return;
       setState(() => _deletePreview = null);
-      showTopSnackBar(context, "查询失败: $e", bottomMargin: 82);
+      showTopSnackBar(context, "查询失败: $e", leftMargin: 96, bottomMargin: 82);
     } finally {
       if (mounted) setState(() => _isQueryingDelete = false);
     }
@@ -1480,7 +1481,7 @@ class _ScorePageState extends State<ScorePage>
 
   Future<void> _deleteData() async {
     if (_deletePreview == null) {
-      showTopSnackBar(context, "请先查询学生信息", bottomMargin: 82);
+      showTopSnackBar(context, "请先查询学生信息", leftMargin: 96, bottomMargin: 82);
       return;
     }
 
@@ -1529,6 +1530,7 @@ class _ScorePageState extends State<ScorePage>
       showTopSnackBar(
         context,
         "已删除「${_deletePreview!.name}」的信息",
+        leftMargin: 96,
         bottomMargin: 82,
       );
 
@@ -1539,7 +1541,7 @@ class _ScorePageState extends State<ScorePage>
       nameController.clear();
     } catch (e) {
       if (!mounted) return;
-      showTopSnackBar(context, "删除失败: $e", bottomMargin: 82);
+      showTopSnackBar(context, "删除失败: $e", leftMargin: 96, bottomMargin: 82);
     }
   }
 
@@ -2158,7 +2160,7 @@ class _SchedulePageState extends State<SchedulePage>
             _itinerary = saved;
             _summary = summary;
           });
-          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", leftMargin: 96, bottomMargin: 82);
         } else {
           setState(() {
             _itinerary = "";
@@ -2190,13 +2192,13 @@ class _SchedulePageState extends State<SchedulePage>
           }
         });
         if (response.data["from_cache"] == true) {
-          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", leftMargin: 96, bottomMargin: 82);
         }
       }
     } catch (e) {
       debugPrint("读取存档失败: $e");
       if (mounted) {
-        showTopSnackBar(context, "读取存档失败: $e", bottomMargin: 82);
+        showTopSnackBar(context, "读取存档失败: $e", leftMargin: 96, bottomMargin: 82);
       }
     } finally {
       if (mounted) {
@@ -2213,7 +2215,7 @@ class _SchedulePageState extends State<SchedulePage>
         _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
 
     if (!hasTasks && !hasStudyAdvice) {
-      showTopSnackBar(context, "请输入任务内容或选择弱势学科", bottomMargin: 82);
+      showTopSnackBar(context, "请输入任务内容或选择弱势学科", leftMargin: 96, bottomMargin: 82);
       return;
     }
 
@@ -2331,7 +2333,7 @@ class _SchedulePageState extends State<SchedulePage>
     } catch (e) {
       debugPrint("生成日程出错: $e");
       if (mounted) {
-        showTopSnackBar(context, "生成失败: $e", bottomMargin: 82);
+        showTopSnackBar(context, "生成失败: $e", leftMargin: 96, bottomMargin: 82);
       }
     } finally {
       if (mounted) {
