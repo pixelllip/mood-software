@@ -1,19 +1,28 @@
-## Configure.ps1使用说明
-
+## configure.ps1/configure.sh使用说明
 在项目根目录 ai_agent 下执行终端命令：
 
 ### 交互模式（推荐）
+PowerShell
 ```
 ./configure.ps1
 ```
+Bash
+```
+./configure.sh
+```
+
 运行后会显示当前所有平台配置总览，然后通过菜单选择要修改的项目。
 
 ### 快速非交互模式
 ```
 # 只改版本号
 .\configure.ps1 -SetVersion 2.0.0+1
+./configure.sh --set-version 2.0.0+1
+```
+```
 # 统一改各平台应用名称
 .\configure.ps1 -SetAppName "我的应用"
+./configure.sh --set-app-name "MyApp"
 ```
 
 ### 脚本功能覆盖

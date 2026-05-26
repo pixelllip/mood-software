@@ -49,7 +49,8 @@ function Read-CurrentConfig {
     $config.androidSigning = "debug (no release signing)"
     if ($androidGradle -match 'signingConfig\s*=\s*signingConfigs\.getByName\("release"\)') {
         $config.androidSigning = "release (configured)"
-    } elseif ($androidGradle -match 'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)') {
+    }
+    elseif ($androidGradle -match 'signingConfig\s*=\s*signingConfigs\.getByName\("debug"\)') {
         $config.androidSigning = "debug (no release signing)"
     }
 
@@ -104,9 +105,9 @@ function Show-CurrentConfig {
     param($config)
 
     Write-Host ""
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
     Write-Host "  CURRENT CONFIG OVERVIEW" -ForegroundColor Cyan
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
 
     Write-Host ""
     Write-Host "  [Version]" -ForegroundColor Yellow
@@ -170,7 +171,8 @@ function Update-File {
         Set-Content $FilePath -Value $content -NoNewline -Encoding UTF8
         Write-Host "  [OK] $Label updated" -ForegroundColor Green
         return $true
-    } else {
+    }
+    else {
         Write-Host "  [WARN] Could not match pattern for $Label, please edit $FilePath manually" -ForegroundColor Yellow
         return $false
     }
@@ -256,7 +258,8 @@ function Set-AndroidSigning {
 
     if ($content -match 'signingConfigs') {
         Write-Host "  [WARN] signingConfigs already exists, please manually edit $file" -ForegroundColor Yellow
-    } else {
+    }
+    else {
         $signingBlock = @"
 
 android {
@@ -340,11 +343,11 @@ function Set-WindowsConfig {
     $current = Read-CurrentConfig
 
     $fields = @(
-        @{Name="CompanyName"; Label="CompanyName"; Current=$current.winCompany},
-        @{Name="FileDescription"; Label="FileDescription"; Current=$current.winFileDesc},
-        @{Name="ProductName"; Label="ProductName"; Current=$current.winProductName},
-        @{Name="OriginalFilename"; Label="OriginalFilename"; Current=$current.winOriginalName},
-        @{Name="LegalCopyright"; Label="LegalCopyright"; Current=$current.winCopyright}
+        @{Name = "CompanyName"; Label = "CompanyName"; Current = $current.winCompany },
+        @{Name = "FileDescription"; Label = "FileDescription"; Current = $current.winFileDesc },
+        @{Name = "ProductName"; Label = "ProductName"; Current = $current.winProductName },
+        @{Name = "OriginalFilename"; Label = "OriginalFilename"; Current = $current.winOriginalName },
+        @{Name = "LegalCopyright"; Label = "LegalCopyright"; Current = $current.winCopyright }
     )
 
     $content = Get-Content $file -Raw -Encoding UTF8
@@ -358,7 +361,8 @@ function Set-WindowsConfig {
             if ($content -match $pattern) {
                 $content = $content -replace $pattern, $newVal
                 Write-Host "  [OK] $($f.Name) updated" -ForegroundColor Green
-            } else {
+            }
+            else {
                 Write-Host "  [WARN] Could not match $($f.Name), please edit manually" -ForegroundColor Yellow
             }
         }
@@ -437,7 +441,8 @@ function Set-IosBundleId {
 
     $currentBundle = if ($content -match '<key>CFBundleIdentifier</key>\s*<string>([^<]+)</string>') {
         $matches[1]
-    } else { "N/A" }
+    }
+    else { "N/A" }
 
     Write-Host "Current CFBundleIdentifier: " -NoNewline
     Write-Host $currentBundle -ForegroundColor Green
@@ -502,7 +507,8 @@ function Set-BackendVersion {
     if ($content -match 'version\s*=\s*"([^"]+)"') {
         Write-Host "Current version: " -NoNewline
         Write-Host $matches[1] -ForegroundColor Green
-    } else {
+    }
+    else {
         Write-Host "Current: no version field set" -ForegroundColor Gray
     }
 
@@ -510,7 +516,8 @@ function Set-BackendVersion {
     if (-not [string]::IsNullOrWhiteSpace($newVer)) {
         if ($content -match 'version\s*=') {
             $content = $content -replace '(?<=version\s*=\s*")[^"]+', $newVer
-        } else {
+        }
+        else {
             $content = $content -replace '(?<=^plugins)', "version = `"$newVer`"`n`nplugins"
         }
         Set-Content $file -Value $content -NoNewline -Encoding UTF8
@@ -529,11 +536,13 @@ function Open-iOSInXcode {
         if (Test-Path $xcworkspace) {
             Write-Host "  [INFO] Opening Xcode..." -ForegroundColor Cyan
             Start-Process "open" -ArgumentList "`"$xcworkspace`"" -NoNewWindow
-        } else {
+        }
+        else {
             $xcodeproj = "$rootDir\ios\Runner.xcodeproj"
             if (Test-Path $xcodeproj) {
                 Start-Process "open" -ArgumentList "`"$xcodeproj`"" -NoNewWindow
-            } else {
+            }
+            else {
                 Write-Host "  [WARN] iOS project not found, please manually open ios/ directory" -ForegroundColor Yellow
             }
         }
@@ -594,16 +603,16 @@ if ($NonInteractive -or $SetVersion -or $SetAppName) {
 
 function Show-Menu {
     Clear-Host
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
     Write-Host "  XingHuo XueBan - Multi-Platform Config Tool" -ForegroundColor Cyan
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
 
     $config = Read-CurrentConfig
     Show-CurrentConfig $config
 
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
     Write-Host "  Select option to modify:" -ForegroundColor Cyan
-    Write-Host ("="*50) -ForegroundColor Cyan
+    Write-Host ("=" * 50) -ForegroundColor Cyan
     Write-Host "  1)  Version (pubspec.yaml)" -ForegroundColor White
     Write-Host "  2)  App Name (all platforms)" -ForegroundColor White
     Write-Host "  3)  Android (appId/namespace/SDK)" -ForegroundColor White
@@ -628,19 +637,19 @@ do {
     Show-Menu
     $choice = Read-Host "Enter option"
     switch ($choice) {
-        "1"  { Set-AppVersion }
-        "2"  { Set-AppName }
-        "3"  { Set-AndroidConfig }
-        "4"  { Set-AndroidSigning }
-        "5"  { Set-iOSDisplayName }
-        "6"  { Set-IosBundleId }
-        "7"  { Set-macOSConfig }
-        "8"  { Set-WindowsConfig }
-        "9"  { Set-LinuxConfig }
+        "1" { Set-AppVersion }
+        "2" { Set-AppName }
+        "3" { Set-AndroidConfig }
+        "4" { Set-AndroidSigning }
+        "5" { Set-iOSDisplayName }
+        "6" { Set-IosBundleId }
+        "7" { Set-macOSConfig }
+        "8" { Set-WindowsConfig }
+        "9" { Set-LinuxConfig }
         "10" { Set-WebConfig }
         "11" { Set-BackendVersion }
         "12" { Open-iOSInXcode }
-        "q"  { Write-Host "Goodbye!" -ForegroundColor Cyan; break }
+        "q" { Write-Host "Goodbye!" -ForegroundColor Cyan; break }
         default { Write-Host "Invalid option, please try again" -ForegroundColor Red }
     }
     if ($choice -ne "q") {
