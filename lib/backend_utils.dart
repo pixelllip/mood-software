@@ -732,10 +732,11 @@ Future<Map<String, Map<String, Map<String, dynamic>>>> loadBacklogForRange({
 
 /// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端居中）
 /// [bottomMargin] 可自定义底部间距：输入框页面用 142，仅导航栏用 82，无导航栏用 6
-/// 在屏幕底部浮动显示一条通知
+/// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端靠左铺满）
 ///
 /// [leftMargin] — 左边缘间距。当有侧边导航栏（如 NavigationRail）时传入导航栏宽度。
-///               默认 16（无侧栏，铺满宽度）。
+///               默认 16（无侧栏，铺满宽度）。手机版（宽度 < 450）自动设为 0，
+///               因为手机端使用 Drawer 而非固定侧栏。
 /// [bottomMargin] — 底部间距。当底部有输入栏等元件时传入其高度。
 ///                  默认 6（无底部元件）。
 void showTopSnackBar(
@@ -745,14 +746,18 @@ void showTopSnackBar(
   double bottomMargin = 6,
 }) {
   final padding = MediaQuery.of(context).padding;
+  // 手机版：没有固定侧栏，SnackBar 应从左边缘开始
+  final isMobile = MediaQuery.of(context).size.width < 450;
+  final actualLeft = isMobile ? 0.0 : leftMargin;
+
   ScaffoldMessenger.of(context).clearSnackBars();
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(message),
       behavior: SnackBarBehavior.floating,
       margin: EdgeInsets.only(
-        left: leftMargin,
-        right: 16,
+        left: actualLeft,
+        right: isMobile ? 0.0 : 16,
         bottom: bottomMargin + padding.bottom,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),

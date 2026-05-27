@@ -81,6 +81,13 @@ class LocalScoreService {
     return 0;
   }
 
+  /// 按 ID 查询，返回所有匹配的学生（允许同学号不同名）
+  static Future<List<StudentData>> queryStudentsById(String id) async {
+    final students = await loadStudents();
+    if (id.isEmpty) return [];
+    return students.where((s) => s.studentId == id).toList();
+  }
+
   /// 查询单个学生（按 ID 精确匹配，或按姓名模糊匹配返回第一个）
   static Future<StudentData?> queryStudent({String? id, String? name}) async {
     final students = await loadStudents();
@@ -112,13 +119,13 @@ class LocalScoreService {
   }
 
   /// 添加/更新成绩（自动标准化分数值）
+  /// 匹配规则：同学号 + 同姓名 → 合并成绩；同学号 + 不同姓名 → 新建条目
   static Future<String> addScore({
     required String studentId,
     required String name,
     required Map<String, dynamic> scores,
   }) async {
     final students = await loadStudents();
-    final idx = students.indexWhere((s) => s.studentId == studentId);
 
     // 标准化所有分数值
     final normalizedScores = <String, dynamic>{};
@@ -126,8 +133,13 @@ class LocalScoreService {
       normalizedScores[entry.key] = _normalizeScore(entry.value);
     }
 
+    // 查找同学号且同姓名（精确匹配）的已有条目
+    final idx = students.indexWhere(
+      (s) => s.studentId == studentId && s.name == name,
+    );
+
     if (idx >= 0) {
-      // 更新已有学生
+      // 同学号 + 同姓名 → 合并成绩
       final existing = students[idx];
       final merged = Map<String, dynamic>.from(existing.scores);
       merged.addAll(normalizedScores);
@@ -139,7 +151,7 @@ class LocalScoreService {
       await _saveStudents(students);
       return '已为学生 [$name] 更新/合并成绩。';
     } else {
-      // 添加新学生
+      // 同学号不同名 或 新学生 → 新建条目
       students.add(
         StudentData(studentId: studentId, name: name, scores: normalizedScores),
       );
@@ -164,6 +176,30 @@ class LocalScoreService {
       return true;
     }
     return false;
+  }
+
+  /// 删除某学生的单科成绩
+  /// 返回 true 表示删除成功，false 表示未找到该科目
+  static Future<bool> deleteSubjectScore({
+    required String studentId,
+    required String subject,
+  }) async {
+    final students = await loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return false;
+
+    final existing = students[idx];
+    final updatedScores = Map<String, dynamic>.from(existing.scores);
+    if (!updatedScores.containsKey(subject)) return false;
+
+    updatedScores.remove(subject);
+    students[idx] = StudentData(
+      studentId: existing.studentId,
+      name: existing.name,
+      scores: updatedScores,
+    );
+    await _saveStudents(students);
+    return true;
   }
 }
 

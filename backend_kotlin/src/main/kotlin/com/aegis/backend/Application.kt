@@ -1,8 +1,11 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+
 package com.aegis.backend
 
 import com.aegis.backend.core.AiAgent
 import com.aegis.backend.core.EnvConfig
 import com.aegis.backend.tools.score_management.StudentScoreService
+import com.aegis.backend.tools.score_management.StudentData
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -15,6 +18,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -64,7 +68,8 @@ data class ScheduleResponse(
 data class QueryResponse(
     val name: String? = null,
     val scores: Map<String, Double>? = null,
-    val error: String? = null
+    val error: String? = null,
+    val students: List<StudentData>? = null
 )
 
 @Serializable
@@ -115,8 +120,10 @@ fun Application.module() {
 
     install(StatusPages) {
         exception<Throwable> { call, cause ->
+            val errorMsg = cause.message ?: "Internal error"
+            val errorJson = json.encodeToString(ErrorResponse(error = errorMsg))
             call.respondText(
-                text = "{\"error\":\"${cause.message?.replace("\"", "'") ?: "Internal error"}\"}",
+                text = errorJson,
                 contentType = ContentType.Application.Json,
                 status = HttpStatusCode.InternalServerError
             )
@@ -194,11 +201,15 @@ fun Application.module() {
             val results = scoreService.queryStudents(studentId = studentId, name = name)
 
             if (results.isNotEmpty()) {
-                val student = results[0]
-                call.respond(QueryResponse(
-                    name = student.name,
-                    scores = student.scores
-                ))
+                if (results.size == 1) {
+                    val student = results[0]
+                    call.respond(QueryResponse(
+                        name = student.name,
+                        scores = student.scores
+                    ))
+                } else {
+                    call.respond(QueryResponse(students = results))
+                }
             } else {
                 call.respond(QueryResponse(error = "Student not found"))
             }
@@ -206,22 +217,20 @@ fun Application.module() {
 
         // POST /add - 添加成绩
         post("/add") {
-            val data = try {
-                call.receive<AddScoreRequest>()
-            } catch (_: Exception) {
-                call.respond(ErrorResponse(error = "No valid JSON data"))
-                return@post
+            try {
+                val data = call.receive<AddScoreRequest>()
+                val studentId = data.student_id ?: data.id ?: ""
+                val name = data.name ?: ""
+                val formattedScores = mutableMapOf<String, Double>()
+                data.scores?.forEach { map ->
+                    map.forEach { (k, v) -> formattedScores[k] = v }
+                }
+                val msg = scoreService.addScore(studentId, name, formattedScores)
+                call.respond(AddResponse(message = msg))
+            } catch (e: Exception) {
+                println(">>> /add 异常: ${e.message}")
+                call.respond(ErrorResponse(error = "提交失败: ${e.message}"))
             }
-
-            val studentId = data.student_id ?: data.id ?: ""
-            val name = data.name ?: ""
-            val formattedScores = mutableMapOf<String, Double>()
-            data.scores?.forEach { map ->
-                map.forEach { (k, v) -> formattedScores[k] = v }
-            }
-
-            val msg = scoreService.addScore(studentId, name, formattedScores)
-            call.respond(AddResponse(message = msg))
         }
 
         // DELETE /delete - 删除学生
@@ -233,6 +242,22 @@ fun Application.module() {
                 call.respond(DeleteResponse(message = "Deleted successfully"))
             } else {
                 call.respond(ErrorResponse(error = "Failed to delete"))
+            }
+        }
+
+        // DELETE /delete/subject - 删除单科成绩
+        delete("/delete/subject") {
+            val studentId = call.request.queryParameters["id"] ?: ""
+            val subject = call.request.queryParameters["subject"] ?: ""
+            if (studentId.isBlank() || subject.isBlank()) {
+                call.respond(ErrorResponse(error = "id and subject are required"))
+                return@delete
+            }
+            val success = scoreService.deleteSubjectScore(studentId = studentId, subject = subject)
+            if (success) {
+                call.respond(DeleteResponse(message = "Subject deleted successfully"))
+            } else {
+                call.respond(ErrorResponse(error = "Failed to delete subject"))
             }
         }
 

@@ -1,13 +1,15 @@
+@file:OptIn(kotlinx.serialization.InternalSerializationApi::class)
+
 package com.aegis.backend.tools.score_management
 
 import com.aegis.backend.core.EnvConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
+@Serializable
 data class StudentData(
     val student_id: String,
     val name: String,
@@ -67,12 +69,13 @@ class StudentScoreService {
     }
 
     fun addScore(studentId: String, name: String, scores: Map<String, Double>): String {
-        val existing = students.find { it.student_id == studentId }
+        // 匹配规则：同学号 + 同姓名 → 合并；同学号 + 不同姓名 → 新建
+        val existing = students.find { it.student_id == studentId && it.name == name }
         return if (existing != null) {
             val merged = existing.scores.toMutableMap()
             merged.putAll(scores)
             val idx = students.indexOf(existing)
-            students[idx] = existing.copy(name = name, scores = merged)
+            students[idx] = existing.copy(scores = merged)
             saveData()
             "已为学生 [$name] 更新/合并成绩。"
         } else {
@@ -95,6 +98,20 @@ class StudentScoreService {
             return true
         }
         return false
+    }
+
+    fun deleteSubjectScore(studentId: String, subject: String): Boolean {
+        val idx = students.indexOfFirst { it.student_id == studentId }
+        if (idx < 0) return false
+
+        val existing = students[idx]
+        val updatedScores = existing.scores.toMutableMap()
+        if (!updatedScores.containsKey(subject)) return false
+
+        updatedScores.remove(subject)
+        students[idx] = existing.copy(scores = updatedScores)
+        saveData()
+        return true
     }
 
     fun queryStudents(studentId: String? = null, name: String? = null): List<StudentData> {
