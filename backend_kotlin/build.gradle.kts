@@ -41,6 +41,12 @@ dependencies {
     implementation("ch.qos.logback:logback-classic:1.5.18")
 
     // (kotlinx-io-core 不存在此版本，已移除)
+
+    // Searching in log
+    implementation("org.apache.lucene:lucene-core:9.9.1")
+    implementation("org.apache.lucene:lucene-queryparser:9.9.1")
+    implementation("org.apache.lucene:lucene-analysis-common:9.9.1")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 java {
@@ -56,4 +62,16 @@ kotlin {
 
 tasks.withType<JavaCompile> {
     options.release.set(17)
+}
+
+tasks.withType<JavaExec> {
+    systemProperty("file.encoding", "UTF-8")
+    systemProperty("stdout.encoding", "UTF-8")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
+    kotlinOptions {
+        jvmTarget = "17"
+        freeCompilerArgs = listOf("-Xjvm-default=all")
+    }
 }
