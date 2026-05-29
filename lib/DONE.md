@@ -378,4 +378,61 @@
 | 🗑 成绩删除 | ✅ 本地 `students.json` 文件 | ✅ 通过 Kotlin 后端 |
 | 📅 日程读取 | ✅ 本地 `Schedule/` 文件 | ✅ 通过 Kotlin 后端 |
 | 🤖 日程生成 | ✅ 直连 AI API + 保存文件 | ✅ 通过 Kotlin 后端 |
+
+---
+
+## 十五、聊天体验优化 & LaTeX 公式渲染（2026-05-29）
+
+### 15.1 LaTeX 公式渲染（$...$ / $$...$$）
+- **文件**: `lib/pages/home_page.dart`
+- 新增 `_MathInlineSyntax`（自定义 `md.InlineSyntax`）在 Markdown 解析阶段拦截 `$...$` / `$$...$$`
+- 创建 `<math>` 元素，通过 `MarkdownElementBuilder` 的 `_MathElementBuilder` 用 `flutter_math_fork.Math.tex()` 渲染
+- Inline math 使用 `WidgetSpan(alignment: PlaceholderAlignment.baseline)` 嵌入文本流，**公式与文字共享基线**，彻底解决行高错位
+- 显示数学（`$$...$$`）保留 `Padding(vertical: 4)` 独立显示
+- 含中文的 `$...$` 自动回退为斜体文本，避免 KaTeX `unicodeTextInMathMode` 警告
+- 新增 `_sanitizeLatex()` 将 Unicode 上标/下标（⁰¹²³⁴⁵⁶⁷⁸⁹ / ₀₁₂₃₄₅₆₇₈₉）转为 LaTeX `^`/`_` 语法
+
+### 15.2 防剧透折叠（Spoiler）
+- **文件**: `lib/pages/home_page.dart`
+- 新增 `_SpoilerWidget` StatefulWidget，解析 `<details><summary>文字</summary>内容</details>` 标签
+- 点击前：灰色按钮 + 👁️ 图标 + 摘要文字 + 下拉箭头
+- 点击后：展开显示完整 Markdown 内容（含公式、代码块、表格等）
+- 内容区域复用 `_buildMarkdown()`，完整支持所有 Markdown 语法
+
+### 15.3 Markdown 兼容性修复
+- **文件**: `lib/pages/home_page.dart`
+- **粗体修复**：中文后紧贴的 `**bold**` 不被 Markdown 解析器识别，添加 `(\S)\*\*(?=\S)` → `$1 **` 正则补空格
+- **横线干扰**：移除 Standalone `---` 水平分割线，避免干扰 `InlineSyntax` 对后续公式的解析
+- **HTML 标签**：`<details>`/`<summary>` 被替换为新 spoiler widget；移除 `---` 横线；合并连续空行
+
+### 15.4 OCR 等待状态视觉反馈
+- **文件**: `lib/pages/home_page.dart`
+- 发送按钮在 OCR 运行时颜色变为半透明/灰色（深色：`white38`，浅色：`grey.shade400`）
+- 与 `TextField.enabled: false` 联动，直观提示用户等待
+
+### 15.5 深色模式 UI 优化
+- **文件**: `lib/pages/home_page.dart`
+- AI 回答气泡背景：`grey.shade800` → `Color(0xFF2A2A2A)`（更暗但仍亮于页面背景）
+- AI 文字颜色改用 `Theme.of(context).textTheme.bodyLarge?.color`，与系统主题色保持一致
+
+### 15.6 新增/修改依赖
+- `pubspec.yaml`：添加 `flutter_math_fork: ^0.7.2`
+- `lib/pages/home_page.dart`：新增 `import 'package:flutter_math_fork/flutter_math.dart'`
+- `lib/pages/home_page.dart`：新增 `import 'package:markdown/markdown.dart' as md'`
+
+---
+
+## 十六、最终功能状态
+
+| 功能 | Android | PC |
+|------|---------|-----|
+| 🤖 AI 聊天 | ✅ 直连 API + 自动保存记录 | ✅ 通过 Kotlin 后端 |
+| 📜 历史记录 | ✅ 读取本地 backlog 文件 | ✅ 通过 Kotlin 后端 |
+| 📊 成绩查询 | ✅ 本地 `students.json` 文件 | ✅ 通过 Kotlin 后端 |
+| ➕ 成绩录入 | ✅ 本地 `students.json` 文件 | ✅ 通过 Kotlin 后端 |
+| 🗑 成绩删除 | ✅ 本地 `students.json` 文件 | ✅ 通过 Kotlin 后端 |
+| 📅 日程读取 | ✅ 本地 `Schedule/` 文件 | ✅ 通过 Kotlin 后端 |
+| 🤖 日程生成 | ✅ 直连 AI API + 保存文件 | ✅ 通过 Kotlin 后端 |
+| 🧮 LaTeX 公式 | ✅ `$...$` / `$$...$$` 渲染 + 基线对齐 | ✅ 同左 |
+| 🔒 防剧透折叠 | ✅ `<details>` 点击展开答案 | ✅ 同左 |
 | 📁 文件夹选择 | ✅ file_picker + 权限申请 | ✅ file_picker |

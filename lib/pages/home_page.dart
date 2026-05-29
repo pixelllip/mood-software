@@ -1,17 +1,23 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/pages/scores/score_result_page.dart';
 import 'package:ai_agent/pages/settings/settings_page.dart';
 import 'package:ai_agent/pages/history/history_page.dart';
+import 'package:ai_agent/pages/study/study_analysis_page.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:markdown/markdown.dart' as md;
+import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:ai_agent/services/local_backend.dart';
 import 'package:ai_agent/services/location_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:file_selector/file_selector.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({
@@ -42,7 +48,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _currentChatSummary;
   int _chatTabIndex = 0;
 
-  final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排"];
+  final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排", "学习分析"];
 
   @override
   void initState() {
@@ -158,6 +164,17 @@ class _MyHomePageState extends State<MyHomePage> {
                 Navigator.pop(context);
               },
             ),
+            ListTile(
+              leading: Icon(
+                selectedIndex == 3 ? Icons.analytics : Icons.analytics_outlined,
+              ),
+              title: const Text("学习分析"),
+              selected: selectedIndex == 3,
+              onTap: () {
+                onItemTapped(3);
+                Navigator.pop(context);
+              },
+            ),
             const Divider(),
             // 快捷深浅色切换（检测实际亮度）
             ListTile(
@@ -225,6 +242,12 @@ class _MyHomePageState extends State<MyHomePage> {
             selectedIndex == 2 ? Icons.event_note : Icons.event_note_outlined,
           ),
           label: const Text("日程安排"),
+        ),
+        NavigationRailDestination(
+          icon: Icon(
+            selectedIndex == 3 ? Icons.analytics : Icons.analytics_outlined,
+          ),
+          label: const Text("学习分析"),
         ),
       ],
     );
@@ -414,6 +437,13 @@ class _MyHomePageState extends State<MyHomePage> {
                   directApiKey: widget.directApiKey,
                   directModel: widget.directModel,
                 ),
+                StudyAnalysisPage(
+                  dio: widget.dio,
+                  useDirectApi: widget.useDirectApi,
+                  directBaseUrl: widget.directBaseUrl,
+                  directApiKey: widget.directApiKey,
+                  directModel: widget.directModel,
+                ),
               ],
             ),
           ),
@@ -446,6 +476,20 @@ class HomeContent extends StatefulWidget {
   State<HomeContent> createState() => _HomeContentState();
 }
 
+/// 附件信息
+class AttachmentInfo {
+  final String type; // 'code' 或 'image'
+  final String name;
+  final String data; // 文件内容（文本）或 base64（图片）
+  final String? ocrText; // 图片OCR识别结果（可选）
+  const AttachmentInfo({
+    required this.type,
+    required this.name,
+    required this.data,
+    this.ocrText,
+  });
+}
+
 class _HomeContentState extends State<HomeContent>
     with SingleTickerProviderStateMixin {
   final List<Map<String, dynamic>> _messages = [
@@ -455,8 +499,14 @@ class _HomeContentState extends State<HomeContent>
   final ScrollController _scrollController = ScrollController();
   final FocusNode _inputFocusNode = FocusNode();
 
+  /// 已添加的附件列表
+  final List<AttachmentInfo> _attachments = [];
+
   /// 当前提问是否涉及地图/位置相关
   bool _isMapQuery = false;
+
+  /// OCR 后台识别中（禁用发送按钮）
+  bool _isOcrRunning = false;
 
   /// 地图相关关键词列表
   static const _mapKeywords = [
@@ -531,9 +581,368 @@ class _HomeContentState extends State<HomeContent>
     }
   }
 
+  /// 添加文件附件（代码文件读取为文本，图片转为 base64）
+  Future<void> _handlePickFile() async {
+    final results = await openFiles(
+      acceptedTypeGroups: [
+        XTypeGroup(
+          label: '代码/文本文件',
+          extensions: [
+            'dart',
+            'py',
+            'java',
+            'kt',
+            'js',
+            'ts',
+            'json',
+            'xml',
+            'html',
+            'css',
+            'yaml',
+            'yml',
+            'md',
+            'txt',
+            'sql',
+            'sh',
+            'bat',
+            'gradle',
+            'properties',
+            'cfg',
+            'ini',
+            'log',
+            'csv',
+            'env',
+            'c',
+            'cpp',
+            'h',
+            'hpp',
+            'go',
+            'rs',
+            'rb',
+            'php',
+            'swift',
+            'ps1',
+            'pl',
+            'lua',
+            'r',
+            'scala',
+            'groovy',
+          ],
+        ),
+        XTypeGroup(
+          label: '图片文件',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'],
+        ),
+      ],
+    );
+
+    if (results.isEmpty) return;
+
+    int addedCount = 0;
+    bool hasImage = false;
+    const imageExts = ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'];
+
+    for (final result in results) {
+      final file = File(result.path);
+      final name = result.name;
+      if (!await file.exists()) continue;
+
+      final ext = name.split('.').last.toLowerCase();
+
+      if (imageExts.contains(ext)) {
+        hasImage = true;
+        // 图片：读取为 base64 + 自动 OCR
+        try {
+          final bytes = await file.readAsBytes();
+          final b64 = base64Encode(bytes);
+          // 后台自动 OCR（不阻塞 UI）
+          unawaited(_autoOcrImage(name, b64));
+          setState(() {
+            _attachments.add(
+              AttachmentInfo(type: 'image', name: name, data: b64),
+            );
+          });
+          addedCount++;
+        } catch (e) {
+          debugPrint("读取图片失败($name): $e");
+        }
+      } else {
+        // 代码/文本文件：读取内容
+        try {
+          final content = await file.readAsString();
+          setState(() {
+            _attachments.add(
+              AttachmentInfo(type: 'code', name: name, data: content),
+            );
+          });
+          addedCount++;
+        } catch (e) {
+          debugPrint("读取文件失败($name): $e");
+        }
+      }
+    }
+
+    if (mounted && addedCount > 0) {
+      final msg = "已添加 $addedCount 个文件${hasImage ? '（图片正在OCR...）' : ''}";
+      showTopSnackBar(context, msg, bottomMargin: 142);
+    }
+  }
+
+  /// 后台自动 OCR 图片（优先 AI，失败回退本地 Tesseract）
+  Future<void> _autoOcrImage(String name, String b64) async {
+    setState(() => _isOcrRunning = true);
+    try {
+      String ocrResult = '';
+
+      // 优先 AI 识别
+      bool aiSucceeded = false;
+      if (widget.useDirectApi) {
+        final baseUrl = widget.directBaseUrl;
+        final apiKey = widget.directApiKey;
+        final model = widget.directModel;
+        if (baseUrl != null && apiKey != null && model != null) {
+          final result = await _ocrWithAiVision(
+            baseUrl: baseUrl,
+            apiKey: apiKey,
+            model: model,
+            imageBase64: b64,
+          );
+          if (result.text.isNotEmpty && !result.text.startsWith("AI 识别失败")) {
+            ocrResult = result.text;
+            aiSucceeded = true;
+          }
+        }
+      } else {
+        try {
+          final response = await widget.dio.post(
+            "/api/ocr",
+            data: {"image": b64, "enable_formula": true},
+          );
+          final data = response.data as Map<String, dynamic>;
+          final text = data['text']?.toString() ?? '';
+          if (text.isNotEmpty && !text.startsWith("[Tesseract")) {
+            ocrResult = text;
+            aiSucceeded = true;
+          }
+        } catch (_) {}
+      }
+
+      // AI 失败则回退本地 Tesseract
+      if (!aiSucceeded && !widget.useDirectApi) {
+        try {
+          final response = await widget.dio.post(
+            "/api/ocr",
+            data: {"image": b64, "enable_formula": false},
+          );
+          final data = response.data as Map<String, dynamic>;
+          ocrResult = data['text']?.toString() ?? '';
+        } catch (_) {}
+      }
+
+      if (!mounted || ocrResult.isEmpty) return;
+
+      // 更新对应附件的 OCR 结果
+      setState(() {
+        for (int i = 0; i < _attachments.length; i++) {
+          if (_attachments[i].name == name && _attachments[i].type == 'image') {
+            _attachments[i] = AttachmentInfo(
+              type: 'image',
+              name: name,
+              data: _attachments[i].data,
+              ocrText: ocrResult,
+            );
+            break;
+          }
+        }
+      });
+      if (mounted) {
+        final label = aiSucceeded ? "AI" : "本地";
+        showTopSnackBar(context, "✅ $name OCR 完成（$label）", bottomMargin: 142);
+      }
+    } catch (e) {
+      debugPrint(">>> 自动OCR失败($name): $e");
+    } finally {
+      if (mounted) setState(() => _isOcrRunning = false);
+    }
+  }
+
+  /// OCR 识别图片
+  Future<void> _handleOcr() async {
+    // 选择图片文件
+    final result = await openFile(
+      acceptedTypeGroups: [
+        XTypeGroup(
+          label: '图片文件',
+          extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'],
+        ),
+      ],
+    );
+
+    if (result == null) return;
+
+    final file = File(result.path);
+    final name = result.name;
+    if (!await file.exists()) return;
+
+    try {
+      showTopSnackBar(context, "正在使用本地 OCR 识别: $name ...", bottomMargin: 142);
+
+      final bytes = await file.readAsBytes();
+      final b64 = base64Encode(bytes);
+
+      // 第一步：快速本地识别（Tesseract，不用 AI）
+      final ocrText = await _ocrLocalFast(b64);
+      if (!mounted) return;
+
+      // 显示结果，传 b64 用于后续 AI 重新识别
+      _showOcrResultDialog(fileName: name, text: ocrText, imageBase64: b64);
+    } catch (e) {
+      if (mounted) {
+        showTopSnackBar(context, "OCR 处理失败: $e", bottomMargin: 142);
+      }
+    }
+  }
+
+  /// 快速本地识别（仅 Tesseract）
+  Future<String> _ocrLocalFast(String b64) async {
+    if (widget.useDirectApi) {
+      // 手机端直连：快速模式只能用 AI（跳过本地 Tesseract）
+      final baseUrl = widget.directBaseUrl;
+      final apiKey = widget.directApiKey;
+      final model = widget.directModel;
+      if (baseUrl != null && apiKey != null && model != null) {
+        final result = await _ocrWithAiVision(
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: model,
+          imageBase64: b64,
+        );
+        return result.text;
+      }
+      return "AI 配置不完整";
+    } else {
+      // PC端：后端 Tesseract 本地识别（快速）
+      try {
+        final response = await widget.dio.post(
+          "/api/ocr",
+          data: {"image": b64, "enable_formula": false},
+        );
+        final data = response.data as Map<String, dynamic>;
+        return data['text']?.toString() ?? '';
+      } catch (e) {
+        return "OCR 识别失败: $e";
+      }
+    }
+  }
+
+  /// 使用 AI 重新识别（公式精修）
+  Future<String> _ocrWithAi(String b64) async {
+    if (widget.useDirectApi) {
+      final baseUrl = widget.directBaseUrl;
+      final apiKey = widget.directApiKey;
+      final model = widget.directModel;
+      if (baseUrl != null && apiKey != null && model != null) {
+        final result = await _ocrWithAiVision(
+          baseUrl: baseUrl,
+          apiKey: apiKey,
+          model: model,
+          imageBase64: b64,
+        );
+        return result.text;
+      }
+      return "AI 配置不完整";
+    } else {
+      try {
+        final response = await widget.dio.post(
+          "/api/ocr",
+          data: {"image": b64, "enable_formula": true},
+        );
+        final data = response.data as Map<String, dynamic>;
+        return data['text']?.toString() ?? '';
+      } catch (e) {
+        return "AI 识别失败: $e";
+      }
+    }
+  }
+
+  /// 使用 AI Vision API 进行 OCR 识别
+  Future<({String text, String? formulaText})> _ocrWithAiVision({
+    required String baseUrl,
+    required String apiKey,
+    required String model,
+    required String imageBase64,
+  }) async {
+    final chatUrl = "$baseUrl/chat/completions";
+
+    final apiMessages = [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text":
+                "请识别这张图片中的所有文字。如果包含数学公式，请用 LaTeX 格式（\$...\$）内嵌在原位输出。直接输出完整文本，不要添加额外说明。",
+          },
+          {
+            "type": "image_url",
+            "image_url": {"url": "data:image/png;base64,$imageBase64"},
+          },
+        ],
+      },
+    ];
+
+    final requestBody = {
+      "model": model,
+      "messages": apiMessages,
+      "max_tokens": 4096,
+      "temperature": 0.1,
+    };
+
+    try {
+      final response = await Dio(
+        BaseOptions(
+          baseUrl: baseUrl,
+          headers: {"Authorization": "Bearer $apiKey"},
+          connectTimeout: const Duration(seconds: 60),
+          receiveTimeout: const Duration(seconds: 120),
+        ),
+      ).post("/chat/completions", data: requestBody);
+
+      final data = response.data as Map<String, dynamic>;
+      final choices = data['choices'] as List<dynamic>?;
+      final content =
+          choices?.firstOrNull?['message']?['content']?.toString() ?? '';
+
+      // AI 直接返回完整文本（公式已用 LaTeX 内嵌在原位）
+      return (text: content, formulaText: null);
+    } catch (e) {
+      return (text: "AI 识别失败: $e", formulaText: null);
+    }
+  }
+
+  /// 显示 OCR 结果对话框
+  void _showOcrResultDialog({
+    required String fileName,
+    required String text,
+    required String imageBase64,
+  }) {
+    showDialog(
+      context: context,
+      builder: (ctx) => _OcrResultDialog(
+        fileName: fileName,
+        initialText: text,
+        imageBase64: imageBase64,
+        controller: _controller,
+        inputFocusNode: _inputFocusNode,
+        onOcrWithAi: _ocrWithAi,
+      ),
+    );
+  }
+
   void resetChat() {
     setState(() {
       _isMapQuery = false;
+      _attachments.clear();
       _messages.clear();
       _messages.add({"text": "你好！我是你的AI助手，有什么我可以帮你的吗？", "isUser": false});
     });
@@ -594,9 +1003,36 @@ class _HomeContentState extends State<HomeContent>
       widget.onSummaryUpdate!(summary);
     }
 
+    // 构建附件文本（如果有附件，拼接到用户消息中）
+    String attachmentText = '';
+    if (_attachments.isNotEmpty) {
+      final attachmentParts = <String>[];
+      for (final att in _attachments) {
+        if (att.type == 'code') {
+          attachmentParts.add(
+            '\n--- 文件附件: ${att.name} ---\n```\n${att.data}\n```\n--- 附件结束 ---',
+          );
+        } else if (att.type == 'image') {
+          if (att.ocrText != null && att.ocrText!.isNotEmpty) {
+            // 有OCR结果：直接使用识别文本
+            attachmentParts.add(
+              '\n--- 图片附件: ${att.name}（OCR识别结果）---\n${att.ocrText}\n--- 附件结束 ---',
+            );
+          } else {
+            // 无OCR结果（正在识别或失败）：提示用户
+            attachmentParts.add('\n--- 图片附件: ${att.name}（正在OCR识别中，请稍后重发）---\n');
+          }
+        }
+      }
+      attachmentText = '\n\n【用户上传的附件】\n${attachmentParts.join('\n')}';
+    }
+
+    final fullText = text + attachmentText;
+
     setState(() {
       _isMapQuery = queryIsMapRelated;
-      _messages.add({"text": text, "isUser": true});
+      _messages.add({"text": fullText, "isUser": true});
+      _attachments.clear();
     });
     _controller.clear();
     _scrollToBottom();
@@ -805,337 +1241,366 @@ class _HomeContentState extends State<HomeContent>
     return Column(
       children: [
         Expanded(
-          child: TabBarView(
-            controller: _chatTabController,
+          child: IndexedStack(
+            index: _chatTabController.index,
             children: [
-              // 页面0：聊天消息列表 + 输入框（都在 TabBarView 内部，随滑动自然过渡）
-              _KeepAliveWrapper(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: Stack(
-                        children: [
-                          ListView.builder(
-                            controller: _scrollController,
-                            padding: const EdgeInsets.only(
-                              left: 16,
-                              right: 16,
-                              top: 16,
-                              bottom: 8,
-                            ),
-                            itemCount: _messages.length,
-                            itemBuilder: (context, index) {
-                              final msg = _messages[index];
-                              final isUser = msg["isUser"] as bool;
-                              final isLastAiMsg =
-                                  !isUser && index == _messages.length - 1;
-                              return Align(
-                                alignment: isUser
-                                    ? Alignment.centerRight
-                                    : Alignment.centerLeft,
-                                child: Container(
-                                  margin: const EdgeInsets.symmetric(
-                                    vertical: 8,
-                                  ),
-                                  padding: const EdgeInsets.only(
-                                    left: 16,
-                                    right: 16,
-                                    top: 10,
-                                    bottom: 6,
-                                  ),
-                                  constraints: BoxConstraints(
-                                    maxWidth:
-                                        MediaQuery.of(context).size.width * 0.7,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: isUser
-                                        ? (isDark
-                                              ? Theme.of(
-                                                  context,
-                                                ).colorScheme.primaryContainer
-                                              : Theme.of(context).primaryColor)
-                                        : (isDark
-                                              ? Colors.grey.shade800
-                                              : Colors.grey.shade200),
-                                    borderRadius: BorderRadius.only(
-                                      topLeft: const Radius.circular(16),
-                                      topRight: const Radius.circular(16),
-                                      bottomLeft: Radius.circular(
-                                        isUser ? 16 : 0,
-                                      ),
-                                      bottomRight: Radius.circular(
-                                        isUser ? 0 : 16,
-                                      ),
+              // 页面0：聊天消息列表 + 输入框
+              Column(
+                children: [
+                  Expanded(
+                    child: Stack(
+                      children: [
+                        ListView.builder(
+                          controller: _scrollController,
+                          padding: const EdgeInsets.only(
+                            left: 16,
+                            right: 16,
+                            top: 16,
+                            bottom: 8,
+                          ),
+                          itemCount: _messages.length,
+                          itemBuilder: (context, index) {
+                            final msg = _messages[index];
+                            final isUser = msg["isUser"] as bool;
+                            final isLastAiMsg =
+                                !isUser && index == _messages.length - 1;
+                            return Align(
+                              key: ValueKey(index),
+                              alignment: isUser
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Container(
+                                margin: const EdgeInsets.symmetric(vertical: 8),
+                                padding: const EdgeInsets.only(
+                                  left: 16,
+                                  right: 16,
+                                  top: 10,
+                                  bottom: 6,
+                                ),
+                                constraints: BoxConstraints(
+                                  maxWidth:
+                                      MediaQuery.of(context).size.width * 0.7,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isUser
+                                      ? (isDark
+                                            ? Theme.of(
+                                                context,
+                                              ).colorScheme.primaryContainer
+                                            : Theme.of(context).primaryColor)
+                                      : (isDark
+                                            ? const Color(0xFF2A2A2A)
+                                            : Colors.grey.shade200),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: const Radius.circular(16),
+                                    topRight: const Radius.circular(16),
+                                    bottomLeft: Radius.circular(
+                                      isUser ? 16 : 0,
+                                    ),
+                                    bottomRight: Radius.circular(
+                                      isUser ? 0 : 16,
                                     ),
                                   ),
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      MarkdownBody(
-                                        data: msg["text"],
-                                        selectable: true,
-                                        styleSheet: MarkdownStyleSheet(
-                                          p: TextStyle(
-                                            color: isUser
-                                                ? (isDark
-                                                      ? Theme.of(context)
-                                                            .colorScheme
-                                                            .onPrimaryContainer
-                                                      : Colors.white)
-                                                : (isDark
-                                                      ? const Color(0xFFE0E0E0)
-                                                      : Colors.black87),
-                                            fontSize: 16,
-                                          ),
-                                          listBullet: TextStyle(
-                                            color: isUser
-                                                ? (isDark
-                                                      ? Theme.of(context)
-                                                            .colorScheme
-                                                            .onPrimaryContainer
-                                                            .withValues(
-                                                              alpha: 0.7,
-                                                            )
-                                                      : Colors.white70)
-                                                : (isDark
-                                                      ? const Color(0xFF9E9E9E)
-                                                      : Colors.black54),
-                                          ),
-                                          code: TextStyle(
-                                            backgroundColor: isDark
-                                                ? const Color(0xFF1E1E1E)
-                                                : Colors.grey.shade100,
-                                            color: isDark
-                                                ? const Color(0xFF6A9955)
-                                                : Colors.black87,
-                                            fontSize: 14,
-                                          ),
-                                          codeblockDecoration: BoxDecoration(
-                                            color: isDark
-                                                ? const Color(0xFF1E1E1E)
-                                                : Colors.grey.shade100,
-                                            borderRadius: BorderRadius.circular(
-                                              8,
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    TextSelectionTheme(
+                                      data: TextSelectionThemeData(
+                                        selectionColor: isDark
+                                            ? Colors.blue.withAlpha(100)
+                                            : Colors.orange.withAlpha(80),
+                                      ),
+                                      child: _MathAwareText(
+                                        text: msg["text"],
+                                        isUser: isUser,
+                                        isDark: isDark,
+                                      ),
+                                    ),
+                                    if (isLastAiMsg && _isMapQuery)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 8),
+                                        child: SizedBox(
+                                          width: double.infinity,
+                                          child: OutlinedButton.icon(
+                                            onPressed: _openAmap,
+                                            icon: const Icon(
+                                              Icons.map,
+                                              size: 16,
                                             ),
-                                          ),
-                                          h1: TextStyle(
-                                            color: isDark
-                                                ? const Color(0xFFE0E0E0)
-                                                : Colors.black87,
-                                          ),
-                                          h2: TextStyle(
-                                            color: isDark
-                                                ? const Color(0xFFE0E0E0)
-                                                : Colors.black87,
-                                          ),
-                                          h3: TextStyle(
-                                            color: isDark
-                                                ? const Color(0xFFE0E0E0)
-                                                : Colors.black87,
-                                          ),
-                                          a: TextStyle(
-                                            color: isDark
-                                                ? const Color(0xFF64B5F6)
-                                                : Colors.blue,
-                                          ),
-                                          strong: TextStyle(
-                                            color: isUser
-                                                ? (isDark
-                                                      ? Theme.of(context)
-                                                            .colorScheme
-                                                            .onPrimaryContainer
-                                                      : Colors.white)
-                                                : (isDark
-                                                      ? const Color(0xFFE0E0E0)
-                                                      : Colors.black87),
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                          blockquote: TextStyle(
-                                            color: isDark
-                                                ? const Color(0xFFBDBDBD)
-                                                : Colors.black54,
+                                            label: const Text(
+                                              "在地图中查看",
+                                              style: TextStyle(fontSize: 13),
+                                            ),
+                                            style: OutlinedButton.styleFrom(
+                                              foregroundColor: const Color(
+                                                0xFFFF6A00,
+                                              ),
+                                              side: const BorderSide(
+                                                color: Color(0xFFFF6A00),
+                                              ),
+                                              shape: RoundedRectangleBorder(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                              ),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 6,
+                                                  ),
+                                              minimumSize: const Size(0, 32),
+                                              visualDensity:
+                                                  VisualDensity.compact,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                      if (isLastAiMsg && _isMapQuery)
-                                        Padding(
-                                          padding: const EdgeInsets.only(
-                                            top: 8,
-                                          ),
-                                          child: SizedBox(
-                                            width: double.infinity,
-                                            child: OutlinedButton.icon(
-                                              onPressed: _openAmap,
-                                              icon: const Icon(
-                                                Icons.map,
-                                                size: 16,
-                                              ),
-                                              label: const Text(
-                                                "在地图中查看",
-                                                style: TextStyle(fontSize: 13),
-                                              ),
-                                              style: OutlinedButton.styleFrom(
-                                                foregroundColor: const Color(
-                                                  0xFFFF6A00,
-                                                ),
-                                                side: const BorderSide(
-                                                  color: Color(0xFFFF6A00),
-                                                ),
-                                                shape: RoundedRectangleBorder(
-                                                  borderRadius:
-                                                      BorderRadius.circular(10),
-                                                ),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      vertical: 6,
-                                                    ),
-                                                minimumSize: const Size(0, 32),
-                                                visualDensity:
-                                                    VisualDensity.compact,
-                                              ),
-                                            ),
-                                          ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                        // "返回底部"浮动按钮（横向与发送按钮对齐）
+                        if (_showScrollToBottom)
+                          Positioned(
+                            right: 16,
+                            bottom: 6,
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () => _scrollToBottom(),
+                                borderRadius: BorderRadius.circular(24),
+                                child: Container(
+                                  width: 44,
+                                  height: 50,
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? Colors.indigo.shade400
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.primaryContainer,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.2,
                                         ),
+                                        blurRadius: 8,
+                                        offset: const Offset(0, 2),
+                                      ),
                                     ],
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                          // "返回底部"浮动按钮（横向与发送按钮对齐）
-                          if (_showScrollToBottom)
-                            Positioned(
-                              right: 16,
-                              bottom: 0,
-                              child: Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () => _scrollToBottom(),
-                                  borderRadius: BorderRadius.circular(24),
-                                  child: Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      color: isDark
-                                          ? Colors.indigo.shade400
-                                          : Theme.of(
-                                              context,
-                                            ).colorScheme.primaryContainer,
-                                      shape: BoxShape.circle,
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                          blurRadius: 8,
-                                          offset: const Offset(0, 2),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Icon(
-                                      Icons.arrow_downward,
-                                      color: isDark
-                                          ? Colors.black87
-                                          : Theme.of(
-                                              context,
-                                            ).colorScheme.onPrimaryContainer,
-                                      size: 22,
-                                    ),
+                                  child: Icon(
+                                    Icons.arrow_downward,
+                                    color: isDark
+                                        ? Colors.black87
+                                        : Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimaryContainer,
+                                    size: 22,
                                   ),
                                 ),
                               ),
                             ),
-                        ],
-                      ),
-                    ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black12,
-                            offset: const Offset(0, -1),
-                            blurRadius: 4,
                           ),
-                        ],
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: _controller,
-                              focusNode: _inputFocusNode,
-                              decoration: InputDecoration(
-                                hintText: "给AI发送消息...",
-                                // 1. 开启填充色，让输入框区域在深色背景下有一个微亮的底色
-                                filled: true,
-                                fillColor:
-                                    Theme.of(context).brightness ==
-                                        Brightness.dark
-                                    ? Colors.white.withValues(
-                                        alpha: 0.15,
-                                      ) // 深色模式下的微亮底色
-                                    : Colors.grey.shade100, // 浅色模式下的微暗底色
-                                // 2. 未选中时的边框（默认边框）
-                                enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(
-                                    12,
-                                  ), // 圆角大小
-                                  borderSide: BorderSide(
-                                    color:
+                      ],
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black12,
+                          offset: const Offset(0, -1),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        // 附件预览列表（图片显示缩略图，非图片显示文件名）
+                        if (_attachments.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 6),
+                            child: SizedBox(
+                              height: 56,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                itemCount: _attachments.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 8),
+                                itemBuilder: (context, index) {
+                                  final att = _attachments[index];
+                                  return _AttachmentPreview(
+                                    attachment: att,
+                                    onDelete: () {
+                                      setState(() {
+                                        _attachments.removeAt(index);
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Focus(
+                                onKeyEvent: (node, event) {
+                                  if (event is KeyDownEvent &&
+                                      event.logicalKey ==
+                                          LogicalKeyboardKey.enter &&
+                                      !HardwareKeyboard
+                                          .instance
+                                          .isShiftPressed) {
+                                    _handleSend();
+                                    return KeyEventResult.handled;
+                                  }
+                                  return KeyEventResult.ignored;
+                                },
+                                child: TextField(
+                                  controller: _controller,
+                                  focusNode: _inputFocusNode,
+                                  enabled: !_isOcrRunning,
+                                  minLines: 1,
+                                  maxLines: 4,
+                                  textInputAction: TextInputAction.newline,
+                                  decoration: InputDecoration(
+                                    hintText: "给AI发送消息...",
+                                    filled: true,
+                                    fillColor:
                                         Theme.of(context).brightness ==
                                             Brightness.dark
-                                        ? Colors.white.withValues(
-                                            alpha: 0.15,
-                                          ) // 深色模式下的半透明白边框
-                                        : Colors.grey.shade300, // 浅色模式下的浅灰边框
-                                  ),
-                                ),
-
-                                // 3. 获取焦点（点击输入）时的边框
-                                focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(
-                                    color: Theme.of(
-                                      context,
-                                    ).primaryColor, // 激活时使用主题色
-                                    width: 1.5,
-                                  ),
-                                ),
-
-                                // 内边距，让文字离边框有一点距离，更好看
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
+                                        ? Colors.white.withValues(alpha: 0.15)
+                                        : Colors.grey.shade100,
+                                    enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide(
+                                        color:
+                                            Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Colors.white.withValues(
+                                                alpha: 0.15,
+                                              )
+                                            : Colors.grey.shade300,
+                                      ),
+                                    ),
+                                    focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                      borderSide: BorderSide(
+                                        color: Theme.of(context).primaryColor,
+                                        width: 1.5,
+                                      ),
+                                    ),
+                                    contentPadding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    suffixIcon: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        // OCR 按钮
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.photo_outlined,
+                                          ),
+                                          tooltip: 'OCR 识别图片',
+                                          onPressed: _handleOcr,
+                                          constraints: const BoxConstraints(
+                                            minWidth: 36,
+                                            minHeight: 36,
+                                          ),
+                                          padding: EdgeInsets.zero,
+                                          iconSize: 20,
+                                        ),
+                                        // 附件按钮（带数量标记）
+                                        Stack(
+                                          clipBehavior: Clip.none,
+                                          children: [
+                                            IconButton(
+                                              icon: const Icon(
+                                                Icons.attach_file,
+                                              ),
+                                              tooltip: '添加文件',
+                                              onPressed: _handlePickFile,
+                                              constraints: const BoxConstraints(
+                                                minWidth: 36,
+                                                minHeight: 36,
+                                              ),
+                                              padding: EdgeInsets.zero,
+                                              iconSize: 22,
+                                            ),
+                                            // 附件数量标记
+                                            if (_attachments.isNotEmpty)
+                                              Positioned(
+                                                top: 0,
+                                                right: 0,
+                                                child: Container(
+                                                  padding: const EdgeInsets.all(
+                                                    3,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: Theme.of(
+                                                      context,
+                                                    ).colorScheme.primary,
+                                                    shape: BoxShape.circle,
+                                                  ),
+                                                  constraints:
+                                                      const BoxConstraints(
+                                                        minWidth: 16,
+                                                        minHeight: 16,
+                                                      ),
+                                                  child: Text(
+                                                    '${_attachments.length}',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 9,
+                                                      fontWeight:
+                                                          FontWeight.bold,
+                                                    ),
+                                                    textAlign: TextAlign.center,
+                                                  ),
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                        const SizedBox(width: 8),
+                                      ],
+                                    ),
+                                  ), // InputDecoration close
+                                ), // TextField close
+                              ), // Focus close
+                            ), // Expanded close
+                            const SizedBox(width: 10),
+                            IconButton(
+                              icon: Icon(
+                                Icons.send,
+                                color: _isOcrRunning
+                                    ? (Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white38
+                                          : Colors.grey.shade400)
+                                    : (Theme.of(context).brightness ==
+                                              Brightness.dark
+                                          ? Colors.white
+                                          : Theme.of(context).primaryColor),
                               ),
-                              onSubmitted: (_) => _handleSend(),
+                              onPressed: _isOcrRunning ? null : _handleSend,
                             ),
-                          ),
-                          const SizedBox(width: 10),
-                          IconButton(
-                            icon: Icon(
-                              Icons.send,
-                              // 关键代码：深色模式下用白色（或高亮色），浅色模式下用原主题色
-                              color:
-                                  Theme.of(context).brightness ==
-                                      Brightness.dark
-                                  ? Colors.white
-                                  : Theme.of(context).primaryColor,
-                            ),
-                            onPressed: _handleSend,
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
               // 页面1：聊天历史（内嵌，用 KeepAlive 包裹）
               _KeepAliveWrapper(
@@ -3178,6 +3643,717 @@ class _SchedulePageState extends State<SchedulePage>
     _scheduleTabController.dispose();
     _taskController.dispose();
     super.dispose();
+  }
+}
+
+/// 构建 OCR 插入文本（公式已内联在 text 中）
+String buildOcrInsertText(String text, String? formulaText) => text;
+
+/// 自定义 InlineSyntax：匹配 $...$（行内公式）和 $$...$$（显示公式）
+class _MathInlineSyntax extends md.InlineSyntax {
+  _MathInlineSyntax() : super(r'\$\$(.+?)\$\$|\$(.+?)\$');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final formula = (match.group(1) ?? match.group(2) ?? '').trim();
+    if (formula.isEmpty) return false;
+    final isDisplay = match.group(1) != null;
+    final el = md.Element('math', [md.Text(formula)]);
+    if (isDisplay) {
+      el.attributes['display'] = 'true';
+    }
+    parser.addNode(el);
+    return true;
+  }
+}
+
+/// 文本段：普通 Markdown 或 <details> 防剧透块
+class _TextSegment {
+  final bool isDetails;
+  final String summary;
+  final String content;
+  const _TextSegment({
+    required this.isDetails,
+    this.summary = '',
+    required this.content,
+  });
+}
+
+/// 防剧透 Widget：点击前模糊/隐藏，点击后显示内容（类似 Telegram spoiler）
+class _SpoilerWidget extends StatefulWidget {
+  final String summary;
+  final Widget contentWidget;
+
+  const _SpoilerWidget({required this.summary, required this.contentWidget});
+
+  @override
+  State<_SpoilerWidget> createState() => _SpoilerWidgetState();
+}
+
+class _SpoilerWidgetState extends State<_SpoilerWidget> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        GestureDetector(
+          onTap: () => setState(() => _expanded = !_expanded),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).brightness == Brightness.dark
+                  ? Colors.grey.shade800
+                  : Colors.grey.shade200,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  _expanded ? Icons.visibility : Icons.visibility_off,
+                  size: 16,
+                  color: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.color?.withValues(alpha: 0.7),
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  widget.summary,
+                  style: TextStyle(
+                    color: Theme.of(context).textTheme.bodyLarge?.color,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(
+                  _expanded ? Icons.expand_less : Icons.expand_more,
+                  size: 18,
+                  color: Theme.of(
+                    context,
+                  ).textTheme.bodyLarge?.color?.withValues(alpha: 0.5),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (_expanded)
+          Padding(
+            padding: const EdgeInsets.only(top: 8, left: 8),
+            child: widget.contentWidget,
+          ),
+      ],
+    );
+  }
+}
+
+/// 聊天消息：MarkdownBody + flutter_math_fork 混合渲染
+/// 支持 <details><summary> 防剧透块
+class _MathAwareText extends StatelessWidget {
+  final String text;
+  final bool isUser;
+  final bool isDark;
+
+  const _MathAwareText({
+    required this.text,
+    required this.isUser,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final userColor = isDark
+        ? Theme.of(context).colorScheme.onPrimaryContainer
+        : Colors.white;
+    final aiColor = isDark
+        ? (Theme.of(context).textTheme.bodyLarge?.color ??
+              const Color(0xFFE0E0E0))
+        : Colors.black87;
+    final textColor = isUser ? userColor : aiColor;
+
+    // 1) 基础清理：移除横线、合并多空行、修复中文后 ** 不渲染的问题
+    final cleaned = text
+        .replaceAll(RegExp(r'\n-{3,}\n'), '\n\n')
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
+        // 中文/非空白字符后的 ** 前补空格，确保 Markdown 粗体识别
+        .replaceAllMapped(RegExp(r'(\S)\*\*(?=\S)'), (m) => '${m.group(1)} **');
+
+    // 2) 解析 <details> 块
+    final segments = _parseDetails(cleaned);
+
+    // 3) 没有 details 块 → 直接 MarkdownBody
+    if (segments.length == 1 && !segments[0].isDetails) {
+      return _buildMarkdown(segments[0].content, textColor, isDark);
+    }
+
+    // 4) 混合内容 → Column
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: segments.map((seg) {
+        if (seg.isDetails) {
+          final contentWidget = _buildMarkdown(seg.content, textColor, isDark);
+          return Padding(
+            padding: const EdgeInsets.only(top: 4, bottom: 4),
+            child: _SpoilerWidget(
+              summary: seg.summary,
+              contentWidget: contentWidget,
+            ),
+          );
+        }
+        if (seg.content.trim().isEmpty) return const SizedBox.shrink();
+        return _buildMarkdown(seg.content, textColor, isDark);
+      }).toList(),
+    );
+  }
+
+  /// 解析 <details><summary>...</summary>...</details>
+  static List<_TextSegment> _parseDetails(String text) {
+    final regex = RegExp(
+      r'<details>\s*<summary>(.*?)</summary>\s*(.*?)\s*</details>',
+      caseSensitive: false,
+      dotAll: true,
+    );
+    final segments = <_TextSegment>[];
+    int lastEnd = 0;
+    for (final m in regex.allMatches(text)) {
+      if (m.start > lastEnd) {
+        segments.add(
+          _TextSegment(
+            isDetails: false,
+            content: text.substring(lastEnd, m.start),
+          ),
+        );
+      }
+      segments.add(
+        _TextSegment(
+          isDetails: true,
+          summary: m.group(1)!.trim(),
+          content: m.group(2)!.trim(),
+        ),
+      );
+      lastEnd = m.end;
+    }
+    if (lastEnd < text.length) {
+      segments.add(
+        _TextSegment(isDetails: false, content: text.substring(lastEnd)),
+      );
+    }
+    if (segments.isEmpty) {
+      segments.add(_TextSegment(isDetails: false, content: text));
+    }
+    return segments;
+  }
+
+  /// 构建一段 MarkdownBody（含公式支持）
+  Widget _buildMarkdown(String data, Color textColor, bool isDark) {
+    return MarkdownBody(
+      data: data,
+      selectable: true,
+      inlineSyntaxes: [_MathInlineSyntax()],
+      builders: {'math': _MathElementBuilder(textColor: textColor)},
+      styleSheet: _markdownStyle(textColor, isDark),
+    );
+  }
+
+  MarkdownStyleSheet _markdownStyle(Color textColor, bool isDark) {
+    return MarkdownStyleSheet(
+      p: TextStyle(color: textColor, fontSize: 16),
+      code: TextStyle(
+        backgroundColor: isDark
+            ? const Color(0xFF1E1E1E)
+            : Colors.grey.shade100,
+        color: isDark ? const Color(0xFF6A9955) : Colors.black87,
+        fontSize: 14,
+      ),
+      codeblockDecoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E1E) : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      h1: TextStyle(
+        color: textColor,
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+      ),
+      h2: TextStyle(
+        color: textColor,
+        fontSize: 19,
+        fontWeight: FontWeight.bold,
+      ),
+      h3: TextStyle(
+        color: textColor,
+        fontSize: 17,
+        fontWeight: FontWeight.bold,
+      ),
+      a: TextStyle(color: isDark ? const Color(0xFF64B5F6) : Colors.blue),
+      strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
+      blockquote: TextStyle(
+        color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
+      ),
+      tableBorder: TableBorder.all(
+        color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+        width: 1,
+      ),
+      tableHead: TextStyle(fontWeight: FontWeight.bold, color: textColor),
+      tableBody: TextStyle(color: textColor),
+      tableCellsPadding: const EdgeInsets.all(8),
+      listBullet: TextStyle(color: textColor.withValues(alpha: 0.7)),
+    );
+  }
+}
+
+/// MarkdownElementBuilder for 元素：用 flutter_math_fork 渲染公式
+/// 含中文时回退为普通文本，避免 LaTeX "unicodeTextInMathMode" 警告
+class _MathElementBuilder extends MarkdownElementBuilder {
+  final Color textColor;
+  _MathElementBuilder({required this.textColor});
+
+  @override
+  bool isBlockElement() => false;
+
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final formula = element.textContent.trim();
+    if (formula.isEmpty) return null;
+
+    final isDisplay = element.attributes['display'] == 'true';
+
+    // 含中文时不作为公式渲染
+    if (_containsChinese(formula)) {
+      // 用斜体表示被 $ 包裹的中文文本
+      return Text(
+        formula,
+        style: TextStyle(
+          color: textColor,
+          fontSize: 16,
+          fontStyle: FontStyle.italic,
+        ),
+      );
+    }
+
+    if (isDisplay) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Math.tex(
+          _sanitizeLatex(formula),
+          textStyle: TextStyle(color: textColor, fontSize: 16),
+          mathStyle: MathStyle.display,
+        ),
+      );
+    }
+
+    // 行内公式：Text.rich + WidgetSpan 嵌入文字流，ConstrainedBox 限制宽度防溢出
+    final maxFormulaWidth = MediaQuery.of(context).size.width * 0.6;
+    return Text.rich(
+      TextSpan(
+        children: [
+          WidgetSpan(
+            alignment: PlaceholderAlignment.middle,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: maxFormulaWidth),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Math.tex(
+                  _sanitizeLatex(formula),
+                  textStyle: TextStyle(color: textColor, fontSize: 16),
+                  mathStyle: MathStyle.text,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+      style: TextStyle(color: textColor, fontSize: 16),
+    );
+  }
+
+  /// 将 Unicode 上标/下标字符转为 LaTeX 语法，避免 KaTeX "unknownSymbol" 警告
+  static String _sanitizeLatex(String s) {
+    return s
+        // 上标
+        .replaceAll('\u{2070}', '^0')
+        .replaceAll('\u{00B9}', '^1')
+        .replaceAll('\u{00B2}', '^2')
+        .replaceAll('\u{00B3}', '^3')
+        .replaceAll('\u{2074}', '^4')
+        .replaceAll('\u{2075}', '^5')
+        .replaceAll('\u{2076}', '^6')
+        .replaceAll('\u{2077}', '^7')
+        .replaceAll('\u{2078}', '^8')
+        .replaceAll('\u{2079}', '^9')
+        .replaceAll('\u{207A}', '^+')
+        .replaceAll('\u{207B}', '^-')
+        .replaceAll('\u{207C}', '^=')
+        .replaceAll('\u{207D}', '^(')
+        .replaceAll('\u{207E}', '^)')
+        .replaceAll('\u{207F}', '^n')
+        // 下标
+        .replaceAll('\u{2080}', '_0')
+        .replaceAll('\u{2081}', '_1')
+        .replaceAll('\u{2082}', '_2')
+        .replaceAll('\u{2083}', '_3')
+        .replaceAll('\u{2084}', '_4')
+        .replaceAll('\u{2085}', '_5')
+        .replaceAll('\u{2086}', '_6')
+        .replaceAll('\u{2087}', '_7')
+        .replaceAll('\u{2088}', '_8')
+        .replaceAll('\u{2089}', '_9');
+  }
+
+  bool _containsChinese(String s) => s.contains(RegExp(r'[\u4e00-\u9fff]'));
+}
+
+/// OCR 结果对话框（独立 StatefulWidget 避免状态重置问题）
+class _OcrResultDialog extends StatefulWidget {
+  final String fileName;
+  final String initialText;
+  final String imageBase64;
+  final TextEditingController controller;
+  final FocusNode inputFocusNode;
+  final Future<String> Function(String b64) onOcrWithAi;
+
+  const _OcrResultDialog({
+    required this.fileName,
+    required this.initialText,
+    required this.imageBase64,
+    required this.controller,
+    required this.inputFocusNode,
+    required this.onOcrWithAi,
+  });
+
+  @override
+  State<_OcrResultDialog> createState() => _OcrResultDialogState();
+}
+
+class _OcrResultDialogState extends State<_OcrResultDialog> {
+  late String _displayText;
+  bool _isAiEnhanced = false;
+  bool _isAiLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayText = widget.initialText;
+  }
+
+  void _onInsert() {
+    Navigator.pop(context);
+    final existingText = widget.controller.text;
+    if (existingText.isNotEmpty) {
+      widget.controller.text = '$existingText\n\n$_displayText';
+    } else {
+      widget.controller.text = _displayText;
+    }
+    widget.controller.selection = TextSelection.fromPosition(
+      TextPosition(offset: widget.controller.text.length),
+    );
+    widget.inputFocusNode.requestFocus();
+  }
+
+  Future<void> _onAiRetry() async {
+    showTopSnackBar(context, "正在使用 AI 重新识别...", bottomMargin: 142);
+    setState(() => _isAiLoading = true);
+    final aiText = await widget.onOcrWithAi(widget.imageBase64);
+    if (mounted) {
+      setState(() {
+        _displayText = aiText;
+        _isAiEnhanced = true;
+        _isAiLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return AlertDialog(
+      title: Row(
+        children: [
+          Icon(
+            _isAiEnhanced ? Icons.auto_awesome : Icons.text_snippet,
+            size: 20,
+            color: _isAiEnhanced ? Colors.amber.shade700 : null,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _isAiEnhanced ? "OCR 识别结果 (AI精修)" : "OCR 识别结果",
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        ],
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400, maxHeight: 360),
+        child: SizedBox(
+          width: double.maxFinite,
+          child: Stack(
+            children: [
+              // 内容始终可见
+              Opacity(
+                opacity: _isAiLoading ? 0.4 : 1.0,
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "文件: ${widget.fileName}",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade600,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Text(
+                            "📝 识别结果:",
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                          if (_isAiEnhanced) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.amber.shade100,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                "AI 精修",
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.amber.shade800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: isDark
+                              ? Colors.grey.shade800
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: SelectableText(
+                          _displayText.isNotEmpty ? _displayText : "（未识别到文字）",
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: isDark ? Colors.white : null,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              // 加载中遮罩
+              if (_isAiLoading)
+                const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("关闭"),
+        ),
+        // AI 重新识别按钮
+        if (!_isAiEnhanced && !_isAiLoading)
+          OutlinedButton.icon(
+            onPressed: _onAiRetry,
+            icon: const Icon(Icons.auto_awesome, size: 16),
+            label: const Text("使用 AI 重新识别"),
+          ),
+        // 插入到输入框
+        if (!_isAiLoading)
+          FilledButton.icon(
+            onPressed: _onInsert,
+            icon: const Icon(Icons.edit, size: 16),
+            label: const Text("插入到输入框"),
+          ),
+      ],
+    );
+  }
+}
+
+/// 附件预览组件（图片显示缩略图，非图片显示文件图标+名称）
+class _AttachmentPreview extends StatelessWidget {
+  final AttachmentInfo attachment;
+  final VoidCallback onDelete;
+
+  const _AttachmentPreview({required this.attachment, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    if (attachment.type == 'image') {
+      // 图片附件：显示缩略图
+      return Stack(
+        children: [
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isDark ? Colors.grey.shade600 : Colors.grey.shade300,
+              ),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(7),
+              child: Image.memory(
+                base64Decode(attachment.data),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    color: isDark ? Colors.grey.shade800 : Colors.grey.shade200,
+                    child: const Center(
+                      child: Icon(Icons.broken_image, size: 24),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          // 文件名浮层
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.only(
+                  bottomLeft: Radius.circular(7),
+                  bottomRight: Radius.circular(7),
+                ),
+                color: Colors.black.withValues(alpha: 0.5),
+              ),
+              child: Text(
+                attachment.name.length > 10
+                    ? '...${attachment.name.substring(attachment.name.length - 10)}'
+                    : attachment.name,
+                style: const TextStyle(color: Colors.white, fontSize: 9),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+          // 删除按钮
+          Positioned(
+            top: -4,
+            right: -4,
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: onDelete,
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  width: 20,
+                  height: 20,
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.grey.shade700 : Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.2),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    Icons.close,
+                    size: 12,
+                    color: isDark ? Colors.white : Colors.grey.shade700,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
+    } else {
+      // 非图片附件：显示文件图标+名称
+      return SizedBox(
+        height: 56,
+        child: Material(
+          color: isDark ? Colors.grey.shade800 : Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            onTap: null,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.insert_drive_file,
+                    size: 20,
+                    color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      attachment.name,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: onDelete,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Icon(
+                        Icons.close,
+                        size: 14,
+                        color: isDark
+                            ? Colors.grey.shade400
+                            : Colors.grey.shade600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
   }
 }
 

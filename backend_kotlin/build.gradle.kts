@@ -40,6 +40,9 @@ dependencies {
     // Logging
     implementation("ch.qos.logback:logback-classic:1.5.18")
 
+    // Tesseract OCR
+    implementation("net.sourceforge.tess4j:tess4j:5.4.0")
+
     // (kotlinx-io-core 不存在此版本，已移除)
 }
 
