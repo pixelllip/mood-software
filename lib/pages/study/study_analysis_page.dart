@@ -31,6 +31,7 @@ class StudyAnalysisPage extends StatefulWidget {
 class _StudyAnalysisPageState extends State<StudyAnalysisPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
+  DateTime _selectedDate = DateTime.now();
 
   @override
   void initState() {
@@ -44,6 +45,22 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
     super.dispose();
   }
 
+  String _formatDate(DateTime date) {
+    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  }
+
+  Future<void> _pickDate() async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate,
+      firstDate: DateTime(2023),
+      lastDate: DateTime.now(),
+    );
+    if (picked != null) {
+      setState(() => _selectedDate = picked);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -54,16 +71,24 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
           child: TabBarView(
             controller: _tabController,
             children: [
-              _RecordQueryTab(
+              KeepAliveWrapper(
+                child: _RecordQueryTab(
                 dio: widget.dio,
                 useDirectApi: widget.useDirectApi,
+                selectedDate: _selectedDate,
+                onDateChanged: _pickDate,
               ),
-              _StudySummaryTab(
+              ),
+              KeepAliveWrapper(
+                child: _StudySummaryTab(
                 dio: widget.dio,
                 useDirectApi: widget.useDirectApi,
                 directBaseUrl: widget.directBaseUrl,
                 directApiKey: widget.directApiKey,
                 directModel: widget.directModel,
+                selectedDate: _selectedDate,
+                onDateChanged: _pickDate,
+              ),
               ),
             ],
           ),
@@ -101,15 +126,20 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
 class _RecordQueryTab extends StatefulWidget {
   final Dio? dio;
   final bool useDirectApi;
-  const _RecordQueryTab({this.dio, this.useDirectApi = false});
+  final DateTime selectedDate;
+  final VoidCallback onDateChanged;
+  const _RecordQueryTab({
+    this.dio,
+    this.useDirectApi = false,
+    required this.selectedDate,
+    required this.onDateChanged,
+  });
 
   @override
   State<_RecordQueryTab> createState() => _RecordQueryTabState();
 }
 
 class _RecordQueryTabState extends State<_RecordQueryTab> {
-  DateTime _selectedDate = DateTime.now();
-
   List<MatchedConversation> _matchedResults = [];
   List<String> _keywords = [];
   final List<String> _customKeywords = [];
@@ -141,23 +171,6 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
     }
   }
 
-  String _formatDate(DateTime date) {
-    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-  }
-
-  Future<void> _pickDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      setState(() => _selectedDate = picked);
-      _doSearch();
-    }
-  }
-
   Future<void> _doSearch() async {
     setState(() => _isLoading = true);
 
@@ -173,7 +186,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
         return;
       }
 
-      final dateStr = _formatDate(_selectedDate);
+      final dateStr = "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
       final results = await StudyAnalysisService.queryMatchedConversations(
         startDate: dateStr,
         endDate: dateStr,
@@ -334,7 +347,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
             children: [
               // 日期选择
               InkWell(
-                onTap: _pickDate,
+                onTap: widget.onDateChanged,
                 child: Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
@@ -352,7 +365,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
                       Icon(Icons.calendar_today, size: 16, color: themeColor),
                       const SizedBox(width: 6),
                       Text(
-                        _formatDate(_selectedDate),
+                        "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}",
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: themeColor,
@@ -547,6 +560,8 @@ class _StudySummaryTab extends StatefulWidget {
   final String? directBaseUrl;
   final String? directApiKey;
   final String? directModel;
+  final DateTime selectedDate;
+  final VoidCallback onDateChanged;
 
   const _StudySummaryTab({
     this.dio,
@@ -554,6 +569,8 @@ class _StudySummaryTab extends StatefulWidget {
     this.directBaseUrl,
     this.directApiKey,
     this.directModel,
+    required this.selectedDate,
+    required this.onDateChanged,
   });
 
   @override
@@ -561,10 +578,9 @@ class _StudySummaryTab extends StatefulWidget {
 }
 
 class _StudySummaryTabState extends State<_StudySummaryTab> {
-  DateTime _selectedDate = DateTime.now();
   DailyStudySummary? _summary;
   List<String> _keywords = [];
-  bool _isLoading = false;
+  bool _isEncouragementLoading = false;
 
   // 日程勾选
   List<_ScheduleItem> _scheduleItems = [];
@@ -581,17 +597,15 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
-
     try {
       final defaults = await StudyAnalysisService.getDefaultKeywords();
       final customs = await StudyAnalysisService.getCustomKeywords();
       _keywords = [...defaults, ...customs];
 
-      // 加载当日总结
+      // 先加载总结（本地数据，无需网络）
       await _refreshSummary();
 
-      // 首次访问：弹出日程勾选对话框
+      // 加载日程
       if (_scheduleItems.isEmpty && mounted) {
         await _loadScheduleItems();
         if (_scheduleItems.isNotEmpty && !_showScheduleDialog) {
@@ -599,22 +613,52 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
           if (mounted) _showScheduleCheckDialog();
         }
       }
+
+      // 再异步加载鼓励语（可能涉及AI/网络）
+      if (mounted) _loadEncouragement();
     } catch (e) {
       debugPrint(">>> 加载学习总结失败: $e");
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  String _formatDate(DateTime date) {
-    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
+  /// 异步加载鼓励语（仅评语部分转圈）
+  Future<void> _loadEncouragement() async {
+    if (_summary == null || !mounted) return;
+    setState(() => _isEncouragementLoading = true);
+
+    try {
+      final config = await loadConfigFile();
+      final studentName = config['STUDENT_NAME']?.toString() ?? '同学';
+
+      final encouragement =
+          await StudyAnalysisService.generateEncouragementWithBackend(
+            grade: _summary!.grade,
+            studentName: studentName,
+            matchedCount: _summary!.matchedCount,
+            completedSchedules: _summary!.completedSchedules,
+            totalSchedules: _summary!.totalSchedules,
+            dio: widget.dio,
+          );
+
+      if (mounted) {
+        setState(() {
+          _currentEncouragement = encouragement;
+          _lastGrade = _summary!.grade;
+        });
+      }
+    } catch (e) {
+      debugPrint(">>> 生成鼓励语失败: $e");
+    } finally {
+      if (mounted) setState(() => _isEncouragementLoading = false);
+    }
   }
+
+  String get _dateStr => "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
 
   /// 加载当日日程列表（从日程文件解析）
   Future<void> _loadScheduleItems() async {
     try {
-      final dateStr = _formatDate(_selectedDate);
-      final content = await LocalScheduleService.loadItinerary(dateStr);
+      final content = await LocalScheduleService.loadItinerary(_dateStr);
 
       if (content != null && content.isNotEmpty) {
         // 解析日程内容，提取任务项
@@ -649,7 +693,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
 
         // 读取已保存的勾选状态
         final allSummaries = await StudyAnalysisService.loadAllSummaries();
-        final saved = allSummaries[_formatDate(_selectedDate)];
+        final saved = allSummaries[_dateStr];
         if (saved != null) {
           // 如果已有保存的完成数，恢复勾选状态
           // 勾选总数匹配时标记前 N 项为已完成
@@ -675,8 +719,12 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
 
   /// 刷新总结
   Future<void> _refreshSummary() async {
-    final dateStr = _formatDate(_selectedDate);
+    final dateStr = _dateStr;
     final completed = _scheduleItems.where((s) => s.isCompleted).length;
+
+    // 先获取旧评级（在重新计算之前存档）
+    final allExisting = await StudyAnalysisService.loadAllSummaries();
+    final oldGrade = allExisting[dateStr]?.grade;
 
     final summary = await StudyAnalysisService.getOrComputeSummary(
       date: dateStr,
@@ -685,38 +733,17 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       totalSchedules: _scheduleItems.length,
     );
 
-    // 检查等级是否变化
-    final gradeChanged = await StudyAnalysisService.hasGradeChanged(
-      dateStr,
-      summary.grade,
-    );
+    // 判断等级是否变化（对比旧评级）
+    final gradeChanged = oldGrade != null && oldGrade != summary.grade;
 
     if (mounted) {
       setState(() {
         _summary = summary;
       });
 
-      // 等级有变化时生成鼓励语
-      if (gradeChanged || _currentEncouragement == null) {
-        final config = await loadConfigFile();
-        final studentName = config['STUDENT_NAME']?.toString() ?? '同学';
-
-        final encouragement =
-            await StudyAnalysisService.generateEncouragementWithBackend(
-              grade: summary.grade,
-              studentName: studentName,
-              matchedCount: summary.matchedCount,
-              completedSchedules: summary.completedSchedules,
-              totalSchedules: summary.totalSchedules,
-              dio: widget.dio,
-            );
-
-        if (mounted) {
-          setState(() {
-            _currentEncouragement = encouragement;
-            _lastGrade = summary.grade;
-          });
-        }
+      // 等级有变化时清除旧鼓励语（等待异步加载）
+      if (gradeChanged) {
+        setState(() => _currentEncouragement = null);
       }
     }
   }
@@ -729,7 +756,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       barrierDismissible: false,
       builder: (ctx) => _ScheduleCheckDialog(
         items: _scheduleItems,
-        dateStr: _formatDate(_selectedDate),
+        dateStr: _dateStr,
       ),
     );
 
@@ -739,32 +766,21 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
     }
   }
 
-  Future<void> _pickDate() async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2023),
-      lastDate: DateTime.now(),
-    );
-    if (picked != null) {
-      setState(() {
-        _selectedDate = picked;
-        _summary = null;
-        _scheduleItems = [];
-        _currentEncouragement = null;
-      });
-      await _loadData();
-    }
+  void _onDateChanged() {
+    widget.onDateChanged();
+    // 日期变化时重新加载
+    setState(() {
+      _summary = null;
+      _scheduleItems = [];
+      _currentEncouragement = null;
+    });
+    _loadData();
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final themeColor = Theme.of(context).colorScheme.primary;
-
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -774,7 +790,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
           // 日期选择
           Center(
             child: InkWell(
-              onTap: _pickDate,
+              onTap: _onDateChanged,
               child: Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -790,7 +806,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
                     Icon(Icons.calendar_month, size: 20, color: themeColor),
                     const SizedBox(width: 8),
                     Text(
-                      _formatDate(_selectedDate),
+                      "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}",
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
@@ -874,7 +890,18 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
             const SizedBox(height: 16),
 
             // 鼓励语
-            if (_currentEncouragement != null)
+            if (_isEncouragementLoading)
+              const Padding(
+                padding: EdgeInsets.all(12),
+                child: Center(
+                  child: SizedBox(
+                    width: 24,
+                    height: 24,
+                    child: CircularProgressIndicator(strokeWidth: 2.5),
+                  ),
+                ),
+              )
+            else if (_currentEncouragement != null)
               Card(
                 elevation: 1,
                 shape: RoundedRectangleBorder(
@@ -912,7 +939,6 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
                   ),
                 ),
               ),
-            const SizedBox(height: 16),
 
             // 重新勾选日程按钮
             if (_scheduleItems.isNotEmpty)
@@ -926,7 +952,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
           ],
 
           // 无数据时的提示
-          if (_summary == null && !_isLoading)
+          if (_summary == null)
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1203,6 +1229,27 @@ class _ScheduleCheckDialogState extends State<_ScheduleCheckDialog> {
       ],
     );
   }
+}
+
+/// TabBarView 切换时保持子页面存活，避免重建
+class KeepAliveWrapper extends StatefulWidget {
+  final Widget child;
+  const KeepAliveWrapper({super.key, required this.child});
+
+  @override
+  State<KeepAliveWrapper> createState() => _KeepAliveWrapperState();
+}
+
+class _KeepAliveWrapperState extends State<KeepAliveWrapper>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+    return widget.child;
+  }
+
+  @override
+  bool get wantKeepAlive => true;
 }
 
 // ==================== Widget Preview ====================

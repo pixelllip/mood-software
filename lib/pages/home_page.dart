@@ -1452,6 +1452,74 @@ class _HomeContentState extends State<HomeContent>
                           ),
                         Row(
                           children: [
+                            // 左侧竖排按钮（类似 Gemini 风格）
+                            Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // OCR 按钮
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.photo_outlined,
+                                  ),
+                                  tooltip: 'OCR 识别图片',
+                                  onPressed: _handleOcr,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 36,
+                                  ),
+                                  padding: EdgeInsets.zero,
+                                  iconSize: 20,
+                                ),
+                                // 附件按钮（带数量标记）
+                                Stack(
+                                  clipBehavior: Clip.none,
+                                  children: [
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.attach_file,
+                                      ),
+                                      tooltip: '添加文件',
+                                      onPressed: _handlePickFile,
+                                      constraints: const BoxConstraints(
+                                        minWidth: 36,
+                                        minHeight: 36,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      iconSize: 22,
+                                    ),
+                                    // 附件数量标记
+                                    if (_attachments.isNotEmpty)
+                                      Positioned(
+                                        top: 0,
+                                        right: 0,
+                                        child: Container(
+                                          padding: const EdgeInsets.all(3),
+                                          decoration: BoxDecoration(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .primary,
+                                            shape: BoxShape.circle,
+                                          ),
+                                          constraints: const BoxConstraints(
+                                            minWidth: 16,
+                                            minHeight: 16,
+                                          ),
+                                          child: Text(
+                                            '${_attachments.length}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                            textAlign: TextAlign.center,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                            const SizedBox(width: 4),
                             Expanded(
                               child: Focus(
                                 onKeyEvent: (node, event) {
@@ -1470,8 +1538,8 @@ class _HomeContentState extends State<HomeContent>
                                   controller: _controller,
                                   focusNode: _inputFocusNode,
                                   enabled: !_isOcrRunning,
-                                  minLines: 1,
-                                  maxLines: 4,
+                                  minLines: 2,
+                                  maxLines: 5,
                                   textInputAction: TextInputAction.newline,
                                   decoration: InputDecoration(
                                     hintText: "给AI发送消息...",
@@ -1500,86 +1568,17 @@ class _HomeContentState extends State<HomeContent>
                                         width: 1.5,
                                       ),
                                     ),
-                                    contentPadding: const EdgeInsets.symmetric(
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 12,
-                                    ),
-                                    suffixIcon: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        // OCR 按钮
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.photo_outlined,
-                                          ),
-                                          tooltip: 'OCR 识别图片',
-                                          onPressed: _handleOcr,
-                                          constraints: const BoxConstraints(
-                                            minWidth: 36,
-                                            minHeight: 36,
-                                          ),
-                                          padding: EdgeInsets.zero,
-                                          iconSize: 20,
-                                        ),
-                                        // 附件按钮（带数量标记）
-                                        Stack(
-                                          clipBehavior: Clip.none,
-                                          children: [
-                                            IconButton(
-                                              icon: const Icon(
-                                                Icons.attach_file,
-                                              ),
-                                              tooltip: '添加文件',
-                                              onPressed: _handlePickFile,
-                                              constraints: const BoxConstraints(
-                                                minWidth: 36,
-                                                minHeight: 36,
-                                              ),
-                                              padding: EdgeInsets.zero,
-                                              iconSize: 22,
-                                            ),
-                                            // 附件数量标记
-                                            if (_attachments.isNotEmpty)
-                                              Positioned(
-                                                top: 0,
-                                                right: 0,
-                                                child: Container(
-                                                  padding: const EdgeInsets.all(
-                                                    3,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: Theme.of(
-                                                      context,
-                                                    ).colorScheme.primary,
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                  constraints:
-                                                      const BoxConstraints(
-                                                        minWidth: 16,
-                                                        minHeight: 16,
-                                                      ),
-                                                  child: Text(
-                                                    '${_attachments.length}',
-                                                    style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontSize: 9,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                    textAlign: TextAlign.center,
-                                                  ),
-                                                ),
-                                              ),
-                                          ],
-                                        ),
-                                        const SizedBox(width: 8),
-                                      ],
                                     ),
                                   ), // InputDecoration close
                                 ), // TextField close
                               ), // Focus close
                             ), // Expanded close
                             const SizedBox(width: 10),
+                            // 发送按钮
                             IconButton(
                               icon: Icon(
                                 Icons.send,
@@ -1593,7 +1592,13 @@ class _HomeContentState extends State<HomeContent>
                                           ? Colors.white
                                           : Theme.of(context).primaryColor),
                               ),
-                              onPressed: _isOcrRunning ? null : _handleSend,
+                              iconSize: 28,
+                              constraints: const BoxConstraints(
+                                minWidth: 44,
+                                minHeight: 44,
+                              ),
+                              onPressed:
+                                  _isOcrRunning ? null : _handleSend,
                             ),
                           ],
                         ),
@@ -3774,12 +3779,10 @@ class _MathAwareText extends StatelessWidget {
         : Colors.black87;
     final textColor = isUser ? userColor : aiColor;
 
-    // 1) 基础清理：移除横线、合并多空行、修复中文后 ** 不渲染的问题
+    // 1) 基础清理：移除横线、合并多空行
     final cleaned = text
         .replaceAll(RegExp(r'\n-{3,}\n'), '\n\n')
-        .replaceAll(RegExp(r'\n{3,}'), '\n\n')
-        // 中文/非空白字符后的 ** 前补空格，确保 Markdown 粗体识别
-        .replaceAllMapped(RegExp(r'(\S)\*\*(?=\S)'), (m) => '${m.group(1)} **');
+        .replaceAll(RegExp(r'\n{3,}'), '\n\n');
 
     // 2) 解析 <details> 块
     final segments = _parseDetails(cleaned);
@@ -3848,14 +3851,16 @@ class _MathAwareText extends StatelessWidget {
     return segments;
   }
 
-  /// 构建一段 MarkdownBody（含公式支持）
+  /// 构建一段 MarkdownBody（含公式支持+多行选择）
   Widget _buildMarkdown(String data, Color textColor, bool isDark) {
-    return MarkdownBody(
-      data: data,
-      selectable: true,
-      inlineSyntaxes: [_MathInlineSyntax()],
-      builders: {'math': _MathElementBuilder(textColor: textColor)},
-      styleSheet: _markdownStyle(textColor, isDark),
+    return SelectionArea(
+      child: MarkdownBody(
+        data: data,
+        selectable: false,
+        inlineSyntaxes: [_MathInlineSyntax()],
+        builders: {'math': _MathElementBuilder(textColor: textColor)},
+        styleSheet: _markdownStyle(textColor, isDark),
+      ),
     );
   }
 
