@@ -3,6 +3,7 @@ package com.aegis.backend
 import com.aegis.backend.core.AiAgent
 import com.aegis.backend.core.EnvConfig
 import com.aegis.backend.tools.score_management.StudentScoreService
+import com.aegis.backend.tools.search.PreciseSearch
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.server.application.*
@@ -34,6 +35,38 @@ data class PingResponse(val status: String, val message: String)
 
 @Serializable
 data class ErrorResponse(val error: String)
+
+@Serializable
+data class SearchRequest(val keyword: String)
+
+@Serializable
+data class SearchResponse(
+    val keyword: String,
+    val expanded_words: ExpandedWords,
+    val total_matches: Int,
+    val files: List<SearchFileResult>
+)
+
+@Serializable
+data class ExpandedWords(
+    val original: String,
+    val related: List<String>,
+    val all: List<String>
+)
+
+@Serializable
+data class SearchFileResult(
+    val file_path: String,
+    val file_name: String,
+    val match_count: Int,
+    val sentences: List<SearchSentence>
+)
+
+@Serializable
+data class SearchSentence(
+    val role: String,
+    val content: String
+)
 
 @Serializable
 data class AddScoreRequest(
@@ -453,6 +486,67 @@ fun Application.module() {
             }
             println(">>> 加载历史记录范围: $startDate ~ $endDate (sort=$sortOrder), ${results.size} 条")
             call.respond(results)
+        }
+
+        // ========== 精准搜索（独立于聊天系统） ==========
+
+        // GET /search?keyword=xxx - 精准搜索（简单查询用 GET）
+        get("/search") {
+            val keyword = call.request.queryParameters["keyword"]
+            if (keyword.isNullOrBlank()) {
+                call.respond(ErrorResponse(error = "请提供 keyword 参数"))
+                return@get
+            }
+            println(">>> 搜索请求: keyword=$keyword")
+            val searcher = PreciseSearch()
+            val jsonStr = searcher.searchJson(keyword)
+            call.respondText(
+                text = jsonStr,
+                contentType = ContentType.Application.Json
+            )
+        }
+
+        // POST /search - 精准搜索（复杂查询用 POST）
+        post("/search") {
+            val data = try {
+                call.receive<SearchRequest>()
+            } catch (e: Exception) {
+                call.respond(ErrorResponse(error = "请提供有效的 JSON 格式，包含 keyword 字段"))
+                return@post
+            }
+            if (data.keyword.isBlank()) {
+                call.respond(ErrorResponse(error = "keyword 不能为空"))
+                return@post
+            }
+            println(">>> 搜索请求(POST): keyword=${data.keyword}")
+            val searcher = PreciseSearch()
+            val jsonStr = searcher.searchJson(data.keyword)
+            call.respondText(
+                text = jsonStr,
+                contentType = ContentType.Application.Json
+            )
+        }
+
+        // GET /search/expand?keyword=xxx - 仅返回联想词（不搜索文件）
+        get("/search/expand") {
+            val keyword = call.request.queryParameters["keyword"]
+            if (keyword.isNullOrBlank()) {
+                call.respond(ErrorResponse(error = "请提供 keyword 参数"))
+                return@get
+            }
+            println(">>> 联想词请求: keyword=$keyword")
+            val searcher = PreciseSearch()
+            // 通过 searchJson 解析出联想词部分
+            val jsonStr = searcher.searchJson(keyword)
+            val fullJson = JSONObject(jsonStr)
+            val result = JSONObject().apply {
+                put("keyword", keyword)
+                put("expanded_words", fullJson.getJSONObject("expanded_words"))
+            }
+            call.respondText(
+                text = result.toString(2),
+                contentType = ContentType.Application.Json
+            )
         }
     }
 }

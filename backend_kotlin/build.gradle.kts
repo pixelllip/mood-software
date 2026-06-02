@@ -57,6 +57,7 @@ java {
 kotlin {
     compilerOptions {
         jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+        freeCompilerArgs.add("-Xjvm-default=all")
     }
 }
 
@@ -69,9 +70,11 @@ tasks.withType<JavaExec> {
     systemProperty("stdout.encoding", "UTF-8")
 }
 
-tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
-    kotlinOptions {
-        jvmTarget = "17"
-        freeCompilerArgs = listOf("-Xjvm-default=all")
-    }
+/** 运行 PreciseSearch 测试（与主服务器独立） */
+tasks.register<JavaExec>("runSearch") {
+    group = "application"
+    description = "运行 PreciseSearch 搜索测试"
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("com.aegis.backend.tools.search.PreciseSearchKt")
+    standardInput = System.`in`
 }

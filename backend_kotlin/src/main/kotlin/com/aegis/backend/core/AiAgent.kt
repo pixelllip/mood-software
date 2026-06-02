@@ -9,6 +9,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import com.aegis.backend.tools.search.*
 
 /**
  * AI Agent - 核心智能体，处理聊天逻辑
@@ -214,12 +215,13 @@ class AiAgent {
     }
 
     private fun buildMessageList(): MutableList<Map<String, Any>> {
+
         val systemPrompt = "你是一个集成了一系列本地和线上工具的超级助理。你的名字是星火学伴 AI。\n" +
                 "【核心规则】：\n" +
                 "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n" +
                 "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n" +
                 "3. 你的回答应当简洁、友好且有用。\n" +
-                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition"
+                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition, precise_search"
 
         val messages = mutableListOf<Map<String, Any>>(
             mapOf("role" to "system", "content" to systemPrompt)
@@ -349,6 +351,25 @@ class AiAgent {
                             put("description", "要查询的IP地址，不传则自动查询当前设备公网IP所在的位置")
                         })
                     })
+                })
+            })
+        })
+
+        // precise_search
+        toolsArray.put(JSONObject().apply {
+            put("type", "function")
+            put("function", JSONObject().apply {
+                put("name", "precise_search")
+                put("description", "精准搜索：输入一个关键词，AI 会先自动扩展出多个联想词（近义词/相关词），然后在本地的对话记录JSON文件中搜索所有匹配的句子并返回结果")
+                put("parameters", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("keyword", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "要搜索的关键词")
+                        })
+                    })
+                    put("required", org.json.JSONArray(listOf("keyword")))
                 })
             })
         })
@@ -570,6 +591,11 @@ class AiAgent {
                     tool.loadBacklog(backlog, targetDate).toString()
                 }
                 "image_recognition" -> "图像识别功能需要使用百度 API，当前 Kotlin 后端暂未实现"
+                "precise_search" -> {
+                    val keyword = args.optString("keyword", "")
+                    if (keyword.isBlank()) return "请提供要搜索的关键词"
+                    PreciseSearch().search(keyword)
+                }
                 else -> "未知工具: $name"
             }
         } catch (e: Exception) {
