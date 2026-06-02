@@ -24,6 +24,20 @@ class MatchedConversation {
     required this.aiResponse,
     required this.matchedKeywords,
   });
+
+  factory MatchedConversation.fromJson(Map<String, dynamic> json) =>
+      MatchedConversation(
+        date: json['date']?.toString() ?? '',
+        time: json['time']?.toString() ?? '',
+        summary: json['summary']?.toString() ?? '',
+        userMessage: json['user_message']?.toString() ?? '',
+        aiResponse: json['ai_response']?.toString() ?? '',
+        matchedKeywords:
+            (json['matched_keywords'] as List<dynamic>?)
+                ?.map((e) => e.toString())
+                .toList() ??
+            [],
+      );
 }
 
 /// 每日学习总结
@@ -178,6 +192,7 @@ class StudyAnalysisService {
     required List<String> keywords,
   }) async {
     final result = <MatchedConversation>[];
+    final seenPairs = <String>{};
 
     if (keywords.isEmpty) return result;
 
@@ -211,17 +226,21 @@ class StudyAnalysisService {
                 .where((kw) => content.contains(kw))
                 .toList();
             if (matchedKws.isNotEmpty) {
-              final timeStr = _extractTimeFromFilename(fileEntry.key);
-              result.add(
-                MatchedConversation(
-                  date: dateStr,
-                  time: timeStr,
-                  summary: summary,
-                  userMessage: userMsg,
-                  aiResponse: content,
-                  matchedKeywords: matchedKws,
-                ),
-              );
+              // 去重：同一问-答对只取第一条
+              final pairKey = "$userMsg|||$content";
+              if (seenPairs.add(pairKey)) {
+                final timeStr = _extractTimeFromFilename(fileEntry.key);
+                result.add(
+                  MatchedConversation(
+                    date: dateStr,
+                    time: timeStr,
+                    summary: summary,
+                    userMessage: userMsg,
+                    aiResponse: content,
+                    matchedKeywords: matchedKws,
+                  ),
+                );
+              }
             }
             userMsg = null;
           }
@@ -230,6 +249,46 @@ class StudyAnalysisService {
     }
 
     return result;
+  }
+
+  /// 通过后端 API 查询匹配记录（支持 AI 联想词扩展）
+  /// 当 dio 可用时调用后端，否则回退到本地查询
+  static Future<List<MatchedConversation>> queryWithBackend({
+    required String startDate,
+    required String endDate,
+    required List<String> keywords,
+    Dio? dio,
+    bool useAiExpansion = true,
+  }) async {
+    if (dio != null) {
+      try {
+        final response = await dio.post(
+          "/api/study/query",
+          data: {
+            "start_date": startDate,
+            "end_date": endDate,
+            "keywords": keywords.join(","),
+            "use_ai_expansion": useAiExpansion,
+          },
+        );
+        final data = response.data;
+        if (data is List) {
+          return data
+              .map(
+                (e) => MatchedConversation.fromJson(e as Map<String, dynamic>),
+              )
+              .toList();
+        }
+      } catch (e) {
+        debugPrint(">>> 后端查询失败，回退本地: $e");
+      }
+    }
+    // 回退到本地查询
+    return queryMatchedConversations(
+      startDate: startDate,
+      endDate: endDate,
+      keywords: keywords,
+    );
   }
 
   /// 从文件名提取时间
@@ -284,22 +343,31 @@ class StudyAnalysisService {
     required List<String> keywords,
     int completedSchedules = 0,
     int totalSchedules = 0,
+    Dio? dio,
+    bool useAiExpansion = true,
   }) async {
+    // 加载已有总结（用于缓存判断和保留评语）
     final all = await loadAllSummaries();
-    if (all.containsKey(date)) {
-      // 如果已保存且日程完成数有更新，重新计算
-      final existing = all[date]!;
-      if (existing.completedSchedules == completedSchedules &&
-          existing.totalSchedules == totalSchedules) {
-        return existing;
+    final useBackend = dio != null;
+
+    // 未使用后端时，若日程数没变则直接返回缓存
+    if (!useBackend) {
+      if (all.containsKey(date)) {
+        final existing = all[date]!;
+        if (existing.completedSchedules == completedSchedules &&
+            existing.totalSchedules == totalSchedules) {
+          return existing;
+        }
       }
     }
 
-    // 查询当日匹配记录
-    final matches = await queryMatchedConversations(
+    // 查询当日匹配记录（有 dio 时走后端 API 支持 AI 联想词扩展）
+    final matches = await queryWithBackend(
       startDate: date,
       endDate: date,
       keywords: keywords,
+      dio: dio,
+      useAiExpansion: useAiExpansion,
     );
 
     final matchedCount = matches.length;
@@ -309,13 +377,17 @@ class StudyAnalysisService {
       totalSchedules,
     );
 
+    // 保留已有的评语（如果有），避免被覆盖
+    final existingSummary = all[date];
+    final existingEncouragement = existingSummary?.encouragement;
+
     final summary = DailyStudySummary(
       date: date,
       matchedCount: matchedCount,
       totalSchedules: totalSchedules,
       completedSchedules: completedSchedules,
       grade: grade,
-      encouragement: null, // AI生成由调用方处理
+      encouragement: existingEncouragement, // 保留已有评语
     );
 
     await saveSummary(summary);
@@ -411,5 +483,27 @@ class StudyAnalysisService {
       completedSchedules: completedSchedules,
       totalSchedules: totalSchedules,
     );
+  }
+
+  // ========== AI 关键词发现 ==========
+
+  /// 从后端发现学习关键词（扫描最近对话记录中的学习内容）
+  static Future<List<String>> discoverKeywordsFromBackend({
+    required Dio dio,
+    int days = 7,
+  }) async {
+    try {
+      final response = await dio.post(
+        "/api/study/discover-keywords",
+        data: {"days": days},
+      );
+      final data = response.data as Map<String, dynamic>;
+      final keywords = data['keywords'] as List<dynamic>?;
+      if (keywords == null || keywords.isEmpty) return [];
+      return keywords.map((e) => e.toString()).toList();
+    } catch (e) {
+      debugPrint(">>> 发现关键词失败: $e");
+      return [];
+    }
   }
 }

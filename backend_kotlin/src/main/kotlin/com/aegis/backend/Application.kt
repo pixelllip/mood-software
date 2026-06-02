@@ -4,6 +4,7 @@ package com.aegis.backend
 
 import com.aegis.backend.core.AiAgent
 import com.aegis.backend.core.EnvConfig
+import com.aegis.backend.tools.precise_search.PreciseSearch
 import com.aegis.backend.tools.score_management.StudentScoreService
 import com.aegis.backend.tools.score_management.StudentData
 import io.ktor.http.*
@@ -105,7 +106,9 @@ data class StudyQueryRequest(
     val startDate: String = "",
     @kotlinx.serialization.SerialName("end_date")
     val endDate: String = "",
-    val keywords: String = ""
+    val keywords: String = "",
+    @kotlinx.serialization.SerialName("use_ai_expansion")
+    val useAiExpansion: Boolean = true
 )
 
 @Serializable
@@ -117,6 +120,24 @@ data class StudySummaryRequest(
     val totalSchedules: Int = 0,
     @kotlinx.serialization.SerialName("completed_schedules")
     val completedSchedules: Int = 0
+)
+
+@Serializable
+data class DiscoverKeywordsRequest(
+    val days: Int = 7
+)
+
+@Serializable
+data class StudyQueryResult(
+    val date: String = "",
+    val time: String = "",
+    val summary: String = "",
+    @kotlinx.serialization.SerialName("user_message")
+    val userMessage: String = "",
+    @kotlinx.serialization.SerialName("ai_response")
+    val aiResponse: String = "",
+    @kotlinx.serialization.SerialName("matched_keywords")
+    val matchedKeywords: List<String> = emptyList()
 )
 
 // ========== JSON 解析器 ==========
@@ -667,23 +688,35 @@ fun Application.module() {
             }
         }
 
-        // POST /api/study/query - 关键词匹配对话记录查询
+        // POST /api/study/query - 关键词匹配对话记录查询（支持 AI 扩展联想词）
         post("/api/study/query") {
             try {
                 val body = call.receive<StudyQueryRequest>()
                 val startDate = body.startDate
                 val endDate = body.endDate
                 val keywordsRaw = body.keywords
+                val useAiExpansion = body.useAiExpansion
 
                 if (startDate.isBlank() || endDate.isBlank()) {
                     call.respond(ErrorResponse(error = "请提供 start_date 和 end_date"))
                     return@post
                 }
 
-                val keywords = keywordsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                var keywords = keywordsRaw.split(",").map { it.trim() }.filter { it.isNotBlank() }
                 if (keywords.isEmpty()) {
                     call.respond(emptyList<Any>())
                     return@post
+                }
+
+                // AI 扩展联想词
+                if (useAiExpansion) {
+                    val preciseSearch = PreciseSearch()
+                    val allExpanded = keywords.flatMap { kw ->
+                        preciseSearch.expandKeywords(kw)
+                    }.toSet().toList()
+                    println(">>> 原始关键词: $keywords")
+                    println(">>> AI 扩展后: $allExpanded")
+                    keywords = allExpanded
                 }
 
                 println(">>> 学习分析 - 查询记录: $startDate ~ $endDate, 关键词=$keywords")
@@ -694,7 +727,8 @@ fun Application.module() {
                     return@post
                 }
 
-                val results = mutableListOf<Map<String, Any>>()
+                val results = mutableListOf<StudyQueryResult>()
+                val seenPairs = mutableSetOf<Pair<String, String>>()
                 val dateDirs = backlogDir.listFiles()
                     ?.filter { it.isDirectory && it.name >= startDate && it.name <= endDate }
                     ?.sorted() ?: emptyList()
@@ -706,13 +740,19 @@ fun Application.module() {
                         ?.sorted() ?: emptyList()
 
                     for (file in files) {
+                        // 跳过 .meta.json 文件
+                        if (file.name.endsWith(".meta.json")) continue
                         try {
-                            val content = file.readText(Charsets.UTF_8)
-                            val json = JSONObject(content)
-                            val messages = json.optJSONArray("messages")
-                            val summary = json.optString("summary", "")
-
-                            if (messages == null) continue
+                            val content = file.readText(Charsets.UTF_8).trim()
+                            // backlog 文件是 JSON 数组格式 [{...},{...}]
+                            val messages = when {
+                                content.startsWith("[") -> org.json.JSONArray(content)
+                                content.startsWith("{") -> {
+                                    val obj = JSONObject(content)
+                                    obj.optJSONArray("messages") ?: continue
+                                }
+                                else -> continue
+                            }
 
                             var userMsg: String? = null
                             for (i in 0 until messages.length()) {
@@ -725,15 +765,18 @@ fun Application.module() {
                                 } else if (role == "assistant" && userMsg != null) {
                                     val matchedKws = keywords.filter { text.contains(it) }
                                     if (matchedKws.isNotEmpty()) {
-                                        val timeStr = file.nameWithoutExtension
-                                        results.add(mapOf(
-                                            "date" to dateStr,
-                                            "time" to timeStr,
-                                            "summary" to summary,
-                                            "user_message" to userMsg,
-                                            "ai_response" to text,
-                                            "matched_keywords" to matchedKws
-                                        ))
+                                        // 去重：同一问-答对出现在多个文件中只取最早一条
+                                        val pair = Pair(userMsg, text)
+                                        if (seenPairs.add(pair)) {
+                                            val timeStr = file.nameWithoutExtension
+                                            results.add(StudyQueryResult(
+                                                date = dateStr,
+                                                time = timeStr,
+                                                userMessage = userMsg,
+                                                aiResponse = text,
+                                                matchedKeywords = matchedKws
+                                            ))
+                                        }
                                     }
                                     userMsg = null
                                 }
@@ -796,6 +839,29 @@ fun Application.module() {
             } catch (e: Exception) {
                 println(">>> 学习总结生成失败: ${e.message}")
                 call.respond(ErrorResponse(error = "生成失败: ${e.message}"))
+            }
+        }
+
+        // POST /api/study/discover-keywords - 从对话记录中自动发现学习关键词
+        post("/api/study/discover-keywords") {
+            try {
+                val body = call.receive<DiscoverKeywordsRequest>()
+                val days = body.days
+
+                println(">>> 学习分析 - 发现关键词: 扫描最近 $days 天")
+
+                val preciseSearch = PreciseSearch()
+                val keywords = preciseSearch.discoverKeywords(days)
+
+                if (keywords.isNotEmpty()) {
+                    println(">>> 发现关键词: $keywords，正在关联到已有学科缓存...")
+                    preciseSearch.integrateDiscoveredKeywords(keywords)
+                }
+
+                call.respond(mapOf("keywords" to keywords))
+            } catch (e: Exception) {
+                println(">>> 发现关键词失败: ${e.message}")
+                call.respond(mapOf("keywords" to emptyList<String>()))
             }
         }
     }

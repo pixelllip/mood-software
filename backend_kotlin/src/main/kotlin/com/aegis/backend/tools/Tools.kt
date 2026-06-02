@@ -2,6 +2,7 @@ package com.aegis.backend.tools
 
 import com.aegis.backend.core.Backlog
 import com.aegis.backend.core.EnvConfig
+import com.aegis.backend.tools.precise_search.PreciseSearch
 import com.aegis.backend.tools.score_management.StudentScoreService
 import com.aegis.backend.tools.task.TaskOrganizer
 import okhttp3.*
@@ -23,6 +24,7 @@ class AgentTools {
 
     val scoreService = StudentScoreService()
     val taskOrganizerService = TaskOrganizer(this)
+    private val preciseSearch = PreciseSearch()
 
     /**
      * 获取天气信息
@@ -39,7 +41,7 @@ class AgentTools {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
             val body = response.body?.string()
-            if (body != null) JSONObject(body).toMap() else null
+            if (body != null) JSONObject(body).toDeepMap() else null
         } catch (e: Exception) {
             println("获取天气失败: ${e.message}")
             null
@@ -106,7 +108,7 @@ class AgentTools {
                 "traffic_level" to trafficLevel,
                 "duration_sec" to durationSec,
                 "tmcs_status_counts" to tmcsStatusCounts,
-                "raw" to raw.toMap()
+                "raw" to raw.toDeepMap()
             )
         } catch (e: Exception) {
             println("获取路况失败: ${e.message}")
@@ -148,6 +150,15 @@ class AgentTools {
         } catch (e: Exception) {
             "搜索失败：${e.message}"
         }
+    }
+
+    /**
+     * 精准搜索 — 接收关键词，AI 扩展联想词后在 backlog JSON 文件中匹配
+     * @param keyword 搜索关键词
+     * @return 格式化的搜索结果文本
+     */
+    fun preciseSearch(keyword: String): String {
+        return preciseSearch.search(keyword)
     }
 
     /**
@@ -212,7 +223,7 @@ class AgentTools {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
             val body = response.body?.string()
-            if (body != null) JSONObject(body).toMap() else null
+            if (body != null) JSONObject(body).toDeepMap() else null
         } catch (e: Exception) {
             println("获取IP定位失败: ${e.message}")
             null
@@ -229,18 +240,18 @@ class AgentTools {
 }
 
 /**
- * JSONObject 转 Map 的辅助扩展
+ * JSONObject 递归转 Map 的辅助扩展（org.json 内置 toMap() 不会递归转换嵌套对象）
  */
-fun JSONObject.toMap(): Map<String, Any> {
+fun JSONObject.toDeepMap(): Map<String, Any> {
     val map = mutableMapOf<String, Any>()
     this.keys().forEach { key ->
         val value = this[key]
         map[key] = when (value) {
-            is JSONObject -> value.toMap()
+            is JSONObject -> value.toDeepMap()
             is org.json.JSONArray -> {
                 (0 until value.length()).map { i ->
                     val item = value[i]
-                    if (item is JSONObject) item.toMap() else item
+                    if (item is JSONObject) item.toDeepMap() else item
                 }
             }
             else -> value

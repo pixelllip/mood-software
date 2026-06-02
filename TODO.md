@@ -67,4 +67,25 @@
 - OCR 按钮和附件添加按钮现固定在输入框底部对齐
 - 无论输入框是单行还是多行（最多4行），按钮始终在最下面一排等高位置
 
-我们现在需要做一个自动化单元测试。
+### 7. PreciseSearch 改进 & 学习分析联动
+- **PreciseSearch 改为 OpenAI 兼容模式**：`expandKeywords()` 改用 `EnvConfig.activeApiKey`/`activeBaseUrl`/`activeModel`，使用 `/chat/completions` OpenAI 兼容端点
+- **后端 `/api/study/query` 集成 PreciseSearch**：新增 `use_ai_expansion` 参数，开启后自动用 PreciseSearch 扩展联想词再搜索
+- **前端 StudyAnalysisService 对接后端**：
+  - 新增 `queryWithBackend()` 方法：优先调用后端 API（支持 AI 扩展），失败回退本地
+  - 新增 `MatchedConversation.fromJson()` 工厂方法
+  - `getOrComputeSummary()` 支持传入 `dio` 走后端查询
+- **记录查询页（_RecordQueryTab）**：`_doSearch()` 优先走 `queryWithBackend()`
+- **学习总结页（_StudySummaryTab）**：`_refreshSummary()` 传入 `dio` 使用后端 AI 扩展查询
+
+### 8. 关键词自动发现（从对话中学习）
+- **PreciseSearch.discoverKeywords()**：扫描最近 N 天 backlog，用 AI 从用户问题中提取学习关键词
+- **POST /api/study/discover-keywords**：新 API 端点，返回发现的关键词列表
+- **前端"从对话中发现关键词"按钮**：记录查询页关键词编辑面板中新增，点击后调用后端 API
+- **_DiscoverKeywordsDialog 选择弹窗**：展示发现的关键词，用户可勾选后添加到自定义关键词列表
+
+### 9. 新关键词自动关联到已有缓存
+- **KeywordCache.mergeInto()**：向已有缓存条目的扩展列表追加新词
+- **PreciseSearch.integrateDiscoveredKeywords()**：发现新关键词后自动关联：
+  - 扩展新关键词 → 检查扩展结果中是否有已缓存的学科名（如"语文"）→ 将新关键词合并进去
+  - 反向：如果新关键词是硬编码映射中的知识点，也合并到对应学科
+- **效果**：发现"小石潭记"后，搜"语文"也能搜到它

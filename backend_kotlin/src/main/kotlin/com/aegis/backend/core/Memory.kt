@@ -298,7 +298,7 @@ object EnvConfig {
         return try {
             val text = file.readText(Charsets.UTF_8)
             val json = org.json.JSONObject(text)
-            json.toMap()
+            json.toDeepMap()
         } catch (_: Exception) {
             emptyMap()
         }

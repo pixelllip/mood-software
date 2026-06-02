@@ -218,7 +218,7 @@ class AiAgent {
                 "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n" +
                 "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n" +
                 "3. 你的回答应当简洁、友好且有用。\n" +
-                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition"
+                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition, precise_search"
 
         val messages = mutableListOf<Map<String, Any>>(
             mapOf("role" to "system", "content" to systemPrompt)
@@ -358,6 +358,25 @@ class AiAgent {
                             put("description", "要查询的IP地址，不传则自动查询当前设备公网IP所在的位置")
                         })
                     })
+                })
+            })
+        })
+
+        // precise_search
+        toolsArray.put(JSONObject().apply {
+            put("type", "function")
+            put("function", JSONObject().apply {
+                put("name", "precise_search")
+                put("description", "精准搜索 — 在对话历史记录(Backlog)中搜索关键词，支持AI联想词扩展，返回匹配的对话内容")
+                put("parameters", JSONObject().apply {
+                    put("type", "object")
+                    put("properties", JSONObject().apply {
+                        put("keyword", JSONObject().apply {
+                            put("type", "string")
+                            put("description", "要搜索的关键词")
+                        })
+                    })
+                    put("required", org.json.JSONArray(listOf("keyword")))
                 })
             })
         })
@@ -579,6 +598,10 @@ class AiAgent {
                     tool.loadBacklog(backlog, targetDate).toString()
                 }
                 "image_recognition" -> "图像识别功能需要使用百度 API，当前 Kotlin 后端暂未实现"
+                "precise_search" -> {
+                    val keyword = args.optString("keyword", "")
+                    tool.preciseSearch(keyword)
+                }
                 else -> "未知工具: $name"
             }
         } catch (e: Exception) {

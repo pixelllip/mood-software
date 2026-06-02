@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
@@ -45,10 +44,6 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
     super.dispose();
   }
 
-  String _formatDate(DateTime date) {
-    return "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-  }
-
   Future<void> _pickDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -71,24 +66,25 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
           child: TabBarView(
             controller: _tabController,
             children: [
-              KeepAliveWrapper(
-                child: _RecordQueryTab(
+              _RecordQueryTab(
+                key: ValueKey(
+                  "record_query_${_selectedDate.toIso8601String().split('T')[0]}",
+                ),
                 dio: widget.dio,
                 useDirectApi: widget.useDirectApi,
                 selectedDate: _selectedDate,
                 onDateChanged: _pickDate,
-              ),
               ),
               KeepAliveWrapper(
                 child: _StudySummaryTab(
-                dio: widget.dio,
-                useDirectApi: widget.useDirectApi,
-                directBaseUrl: widget.directBaseUrl,
-                directApiKey: widget.directApiKey,
-                directModel: widget.directModel,
-                selectedDate: _selectedDate,
-                onDateChanged: _pickDate,
-              ),
+                  dio: widget.dio,
+                  useDirectApi: widget.useDirectApi,
+                  directBaseUrl: widget.directBaseUrl,
+                  directApiKey: widget.directApiKey,
+                  directModel: widget.directModel,
+                  selectedDate: _selectedDate,
+                  onDateChanged: _pickDate,
+                ),
               ),
             ],
           ),
@@ -129,6 +125,7 @@ class _RecordQueryTab extends StatefulWidget {
   final DateTime selectedDate;
   final VoidCallback onDateChanged;
   const _RecordQueryTab({
+    super.key,
     this.dio,
     this.useDirectApi = false,
     required this.selectedDate,
@@ -151,6 +148,14 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
   void initState() {
     super.initState();
     _loadKeywords().then((_) => _doSearch());
+  }
+
+  @override
+  void didUpdateWidget(covariant _RecordQueryTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedDate != widget.selectedDate) {
+      _loadKeywords().then((_) => _doSearch());
+    }
   }
 
   @override
@@ -186,11 +191,16 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
         return;
       }
 
-      final dateStr = "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
-      final results = await StudyAnalysisService.queryMatchedConversations(
+      final dateStr =
+          "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
+
+      // 有 dio 时走后端 API（支持 AI 联想词扩展），否则走本地查询
+      final results = await StudyAnalysisService.queryWithBackend(
         startDate: dateStr,
         endDate: dateStr,
         keywords: allKeywords,
+        dio: widget.dio,
+        useAiExpansion: true,
       );
 
       if (mounted) {
@@ -223,6 +233,91 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
       _customKeywords.removeAt(index);
     });
     StudyAnalysisService.saveCustomKeywords(_customKeywords);
+  }
+
+  Future<void> _discoverKeywords() async {
+    if (widget.dio == null) return;
+    setState(() => _isLoading = true);
+
+    try {
+      final discovered = await StudyAnalysisService.discoverKeywordsFromBackend(
+        dio: widget.dio!,
+        days: 7,
+      );
+      if (!mounted) return;
+
+      if (discovered.isEmpty) {
+        showTopSnackBar(context, "未发现新的学习关键词");
+        return;
+      }
+
+      // 过滤掉已有的关键词
+      final existing = {..._keywords, ..._customKeywords};
+      final newKeywords = discovered
+          .where((k) => !existing.contains(k))
+          .toList();
+
+      if (newKeywords.isEmpty) {
+        showTopSnackBar(context, "发现 ${discovered.length} 个关键词，但都已存在");
+        return;
+      }
+
+      // 自动添加所有新发现的关键词
+      setState(() {
+        _customKeywords.addAll(newKeywords);
+      });
+      StudyAnalysisService.saveCustomKeywords(_customKeywords);
+
+      // 显示关联结果通知
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.auto_awesome, size: 20),
+                SizedBox(width: 8),
+                Text("关键词发现完成", style: TextStyle(fontSize: 16)),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text("已发现 ${newKeywords.length} 个学习关键词并自动添加："),
+                const SizedBox(height: 8),
+                Text(
+                  newKeywords.join("、"),
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "已自动关联到已有学科缓存中，搜索时将能匹配到更多相关记录。",
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text("知道了"),
+              ),
+            ],
+          ),
+        ).then((_) => _doSearch());
+      }
+    } catch (e) {
+      debugPrint(">>> 发现关键词失败: $e");
+      if (mounted) {
+        showTopSnackBar(context, "发现关键词失败: $e");
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   @override
@@ -336,6 +431,30 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
                     ),
                   ],
                 ),
+                const SizedBox(height: 6),
+                // 从对话中发现关键词
+                if (widget.dio != null)
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isLoading ? null : _discoverKeywords,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.auto_awesome, size: 16),
+                      label: Text(
+                        _isLoading ? "分析中..." : "从对话中发现关键词",
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(vertical: 6),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -587,13 +706,21 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
   bool _showScheduleDialog = false;
 
   // 上次的等级，用于判断是否变化
-  String? _lastGrade;
   String? _currentEncouragement;
 
   @override
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void didUpdateWidget(covariant _StudySummaryTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // 日期变化时重新刷新总结
+    if (oldWidget.selectedDate != widget.selectedDate) {
+      _loadData();
+    }
   }
 
   Future<void> _loadData() async {
@@ -624,6 +751,17 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
   /// 异步加载鼓励语（仅评语部分转圈）
   Future<void> _loadEncouragement() async {
     if (_summary == null || !mounted) return;
+
+    // 优先使用已保存的评语
+    final allSummaries = await StudyAnalysisService.loadAllSummaries();
+    final saved = allSummaries[_dateStr];
+    if (saved?.encouragement != null && saved!.encouragement!.isNotEmpty) {
+      if (mounted) {
+        setState(() => _currentEncouragement = saved.encouragement);
+      }
+      return;
+    }
+
     setState(() => _isEncouragementLoading = true);
 
     try {
@@ -643,8 +781,19 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       if (mounted) {
         setState(() {
           _currentEncouragement = encouragement;
-          _lastGrade = _summary!.grade;
         });
+        // 评语保存到总结文件，下次直接加载无需重新生成
+        if (_summary != null) {
+          final savedSummary = DailyStudySummary(
+            date: _summary!.date,
+            matchedCount: _summary!.matchedCount,
+            totalSchedules: _summary!.totalSchedules,
+            completedSchedules: _summary!.completedSchedules,
+            grade: _summary!.grade,
+            encouragement: encouragement,
+          );
+          await StudyAnalysisService.saveSummary(savedSummary);
+        }
       }
     } catch (e) {
       debugPrint(">>> 生成鼓励语失败: $e");
@@ -653,7 +802,8 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
     }
   }
 
-  String get _dateStr => "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
+  String get _dateStr =>
+      "${widget.selectedDate.year}-${widget.selectedDate.month.toString().padLeft(2, '0')}-${widget.selectedDate.day.toString().padLeft(2, '0')}";
 
   /// 加载当日日程列表（从日程文件解析）
   Future<void> _loadScheduleItems() async {
@@ -731,6 +881,8 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       keywords: _keywords,
       completedSchedules: completed,
       totalSchedules: _scheduleItems.length,
+      dio: widget.dio,
+      useAiExpansion: true,
     );
 
     // 判断等级是否变化（对比旧评级）
@@ -754,10 +906,8 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
     final result = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => _ScheduleCheckDialog(
-        items: _scheduleItems,
-        dateStr: _dateStr,
-      ),
+      builder: (ctx) =>
+          _ScheduleCheckDialog(items: _scheduleItems, dateStr: _dateStr),
     );
 
     if (result == true && mounted) {
@@ -1155,7 +1305,7 @@ class _ScheduleItem {
   final String task;
   bool isCompleted;
 
-  _ScheduleItem({required this.task, this.isCompleted = false});
+  _ScheduleItem({required this.task}) : isCompleted = false;
 }
 
 class _ScheduleCheckDialog extends StatefulWidget {
@@ -1191,7 +1341,6 @@ class _ScheduleCheckDialogState extends State<_ScheduleCheckDialog> {
                   const Text("请勾选你已完成的任务："),
                   const SizedBox(height: 12),
                   ...widget.items.asMap().entries.map((entry) {
-                    final i = entry.key;
                     final item = entry.value;
                     return CheckboxListTile(
                       value: item.isCompleted,
@@ -1254,7 +1403,6 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper>
 
 // ==================== Widget Preview ====================
 
-@Preview()
 Widget studyAnalysisPagePreview() {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
