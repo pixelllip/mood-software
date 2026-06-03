@@ -3,7 +3,6 @@ import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/services/local_backend.dart';
 import 'package:ai_agent/services/study_analysis_service.dart';
-import 'package:flutter/widget_previews.dart';
 
 /// 学习分析主页面
 /// 包含「记录查询」和「学习总结」两个子界面
@@ -13,6 +12,7 @@ class StudyAnalysisPage extends StatefulWidget {
   final String? directBaseUrl;
   final String? directApiKey;
   final String? directModel;
+  final bool isActive;
 
   const StudyAnalysisPage({
     super.key,
@@ -21,6 +21,7 @@ class StudyAnalysisPage extends StatefulWidget {
     this.directBaseUrl,
     this.directApiKey,
     this.directModel,
+    this.isActive = false,
   });
 
   @override
@@ -66,14 +67,20 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
           child: TabBarView(
             controller: _tabController,
             children: [
-              _RecordQueryTab(
-                key: ValueKey(
-                  "record_query_${_selectedDate.toIso8601String().split('T')[0]}",
+              KeepAliveWrapper(
+                child: _RecordQueryTab(
+                  key: ValueKey(
+                    "record_query_${_selectedDate.toIso8601String().split('T')[0]}",
+                  ),
+                  dio: widget.dio,
+                  useDirectApi: widget.useDirectApi,
+                  selectedDate: _selectedDate,
+                  onDateChanged: _pickDate,
+                  directBaseUrl: widget.directBaseUrl,
+                  directApiKey: widget.directApiKey,
+                  directModel: widget.directModel,
+                  isActive: widget.isActive,
                 ),
-                dio: widget.dio,
-                useDirectApi: widget.useDirectApi,
-                selectedDate: _selectedDate,
-                onDateChanged: _pickDate,
               ),
               KeepAliveWrapper(
                 child: _StudySummaryTab(
@@ -124,12 +131,20 @@ class _RecordQueryTab extends StatefulWidget {
   final bool useDirectApi;
   final DateTime selectedDate;
   final VoidCallback onDateChanged;
+  final String? directBaseUrl;
+  final String? directApiKey;
+  final String? directModel;
+  final bool isActive;
   const _RecordQueryTab({
     super.key,
     this.dio,
     this.useDirectApi = false,
     required this.selectedDate,
     required this.onDateChanged,
+    this.directBaseUrl,
+    this.directApiKey,
+    this.directModel,
+    this.isActive = false,
   });
 
   @override
@@ -144,18 +159,38 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
   bool _isLoading = false;
   bool _showKeywordEditor = false;
 
+  /// 上次搜索参数签名，避免条件不变时重复自动搜索
+  int _lastSearchSignature = 0;
+
   @override
   void initState() {
     super.initState();
-    _loadKeywords().then((_) => _doSearch());
+    _loadKeywords().then((_) {
+      if (mounted && widget.isActive) _autoSearchIfChanged();
+    });
   }
 
   @override
   void didUpdateWidget(covariant _RecordQueryTab oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedDate != widget.selectedDate) {
-      _loadKeywords().then((_) => _doSearch());
+    // 首次激活或日期变化时自动搜索
+    final justActivated = !oldWidget.isActive && widget.isActive;
+    if (justActivated || oldWidget.selectedDate != widget.selectedDate) {
+      _loadKeywords().then((_) {
+        if (mounted) _autoSearchIfChanged();
+      });
     }
+  }
+
+  /// 搜索条件不变且无新增对话时跳过自动搜索
+  void _autoSearchIfChanged() {
+    if (!mounted) return;
+    final kwSig = Object.hashAll([..._keywords, ..._customKeywords]);
+    final dateSig = widget.selectedDate.toIso8601String().split('T')[0];
+    final sig = Object.hash(dateSig, kwSig);
+    if (sig == _lastSearchSignature && _matchedResults.isNotEmpty) return;
+    _lastSearchSignature = sig;
+    _doSearch();
   }
 
   @override
@@ -177,11 +212,24 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
   }
 
   Future<void> _doSearch() async {
+    if (!mounted) return;
+    // 预捕获 SnackBar 参数（避免 async 后使用 context）
+    final msgCenter = ScaffoldMessenger.of(context);
+    final padBottom = MediaQuery.of(context).padding.bottom;
+    final isMobileMode = MediaQuery.of(context).size.width < 450;
+
+    showTopSnackBarWithState(
+      messenger: msgCenter,
+      message: "正在查询匹配记录...",
+      bottomPadding: padBottom,
+      isMobile: isMobileMode,
+      bottomMargin: 82,
+    );
     setState(() => _isLoading = true);
 
     try {
-      // 合并关键词：默认 + 自定义
-      final allKeywords = <String>[..._keywords, ..._customKeywords];
+      // 合并关键词：默认 + 自定义（去重）
+      final allKeywords = <String>{..._keywords, ..._customKeywords}.toList();
 
       if (allKeywords.isEmpty) {
         setState(() {
@@ -199,7 +247,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
         startDate: dateStr,
         endDate: dateStr,
         keywords: allKeywords,
-        dio: widget.dio,
+        dio: widget.useDirectApi ? null : widget.dio,
         useAiExpansion: true,
       );
 
@@ -213,7 +261,13 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
       debugPrint(">>> 查询失败: $e");
       if (mounted) {
         setState(() => _isLoading = false);
-        showTopSnackBar(context, "查询失败: $e");
+        showTopSnackBarWithState(
+          messenger: msgCenter,
+          message: "查询失败: $e",
+          bottomPadding: padBottom,
+          isMobile: isMobileMode,
+          bottomMargin: 82,
+        );
       }
     }
   }
@@ -236,18 +290,57 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
   }
 
   Future<void> _discoverKeywords() async {
-    if (widget.dio == null) return;
+    // 预捕获 SnackBar 参数（避免 async 后使用 context）
+    final msgCenter = ScaffoldMessenger.of(context);
+    final padBottom = MediaQuery.of(context).padding.bottom;
+    final isMobileMode = MediaQuery.of(context).size.width < 450;
+
+    showTopSnackBarWithState(
+      messenger: msgCenter,
+      message: "正在扫描对话记录，发现学习关键词...",
+      bottomPadding: padBottom,
+      isMobile: isMobileMode,
+      bottomMargin: 82,
+    );
     setState(() => _isLoading = true);
 
     try {
-      final discovered = await StudyAnalysisService.discoverKeywordsFromBackend(
-        dio: widget.dio!,
-        days: 7,
-      );
+      final List<String> discovered;
+
+      if (widget.useDirectApi &&
+          widget.directBaseUrl != null &&
+          widget.directApiKey != null &&
+          widget.directModel != null) {
+        // 📱 手机端直连模式 + AI 可用 → 用 AI 分析对话提取关键词
+        discovered =
+            await StudyAnalysisService.discoverKeywordsFromBacklogWithAI(
+              baseUrl: widget.directBaseUrl!,
+              apiKey: widget.directApiKey!,
+              model: widget.directModel!,
+              days: 7,
+            );
+      } else if (widget.useDirectApi || widget.dio == null) {
+        // 📱 手机端直连模式但无 AI 配置 → 回退本地规则匹配
+        discovered = await StudyAnalysisService.discoverKeywordsFromBacklog(
+          days: 7,
+        );
+      } else {
+        // 💻 PC 模式：通过后端 API
+        discovered = await StudyAnalysisService.discoverKeywordsFromBackend(
+          dio: widget.dio!,
+          days: 7,
+        );
+      }
       if (!mounted) return;
 
       if (discovered.isEmpty) {
-        showTopSnackBar(context, "未发现新的学习关键词");
+        showTopSnackBarWithState(
+          messenger: msgCenter,
+          message: "未发现新的学习关键词",
+          bottomPadding: padBottom,
+          isMobile: isMobileMode,
+          bottomMargin: 82,
+        );
         return;
       }
 
@@ -258,7 +351,13 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
           .toList();
 
       if (newKeywords.isEmpty) {
-        showTopSnackBar(context, "发现 ${discovered.length} 个关键词，但都已存在");
+        showTopSnackBarWithState(
+          messenger: msgCenter,
+          message: "发现 ${discovered.length} 个关键词，但都已存在",
+          bottomPadding: padBottom,
+          isMobile: isMobileMode,
+          bottomMargin: 82,
+        );
         return;
       }
 
@@ -308,12 +407,20 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
               ),
             ],
           ),
-        ).then((_) => _doSearch());
+        ).then((_) {
+          if (mounted) _doSearch();
+        });
       }
     } catch (e) {
       debugPrint(">>> 发现关键词失败: $e");
       if (mounted) {
-        showTopSnackBar(context, "发现关键词失败: $e");
+        showTopSnackBarWithState(
+          messenger: msgCenter,
+          message: "发现关键词失败: $e",
+          bottomPadding: padBottom,
+          isMobile: isMobileMode,
+          bottomMargin: 82,
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -559,7 +666,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
               : ListView.separated(
                   padding: const EdgeInsets.all(12),
                   itemCount: _matchedResults.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
+                  separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
                     final item = _matchedResults[index];
                     return _buildConversationCard(item, isDark, themeColor);
@@ -752,6 +859,11 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
   Future<void> _loadEncouragement() async {
     if (_summary == null || !mounted) return;
 
+    // 预捕获 SnackBar 参数（在第一个 await 之前）
+    final msgCenter = ScaffoldMessenger.of(context);
+    final padBottom = MediaQuery.of(context).padding.bottom;
+    final isMobileMode = MediaQuery.of(context).size.width < 450;
+
     // 优先使用已保存的评语
     final allSummaries = await StudyAnalysisService.loadAllSummaries();
     final saved = allSummaries[_dateStr];
@@ -763,6 +875,13 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
     }
 
     setState(() => _isEncouragementLoading = true);
+    showTopSnackBarWithState(
+      messenger: msgCenter,
+      message: "正在生成学习鼓励语...",
+      bottomPadding: padBottom,
+      isMobile: isMobileMode,
+      bottomMargin: 82,
+    );
 
     try {
       final config = await loadConfigFile();

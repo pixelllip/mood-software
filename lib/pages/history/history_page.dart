@@ -6,7 +6,15 @@ import 'package:ai_agent/backend_utils.dart';
 class HistoryPage extends StatefulWidget {
   final Dio dio;
   final Function(List<dynamic> messages, String summary)? onContinue;
-  const HistoryPage({super.key, required this.dio, this.onContinue});
+
+  /// 外部刷新通知器：值变化时自动重新加载历史记录
+  final ValueNotifier<int>? refreshNotifier;
+  const HistoryPage({
+    super.key,
+    required this.dio,
+    this.onContinue,
+    this.refreshNotifier,
+  });
 
   @override
   State<HistoryPage> createState() => _HistoryPageState();
@@ -37,6 +45,19 @@ class _HistoryPageState extends State<HistoryPage> {
   @override
   void initState() {
     super.initState();
+    _fetchHistory();
+    // 监听外部刷新信号
+    widget.refreshNotifier?.addListener(_onRefreshRequested);
+  }
+
+  @override
+  void dispose() {
+    widget.refreshNotifier?.removeListener(_onRefreshRequested);
+    super.dispose();
+  }
+
+  /// 收到外部刷新信号时重新加载历史记录
+  void _onRefreshRequested() {
     _fetchHistory();
   }
 

@@ -15,6 +15,7 @@ import 'package:markdown/markdown.dart' as md;
 import 'package:flutter_math_fork/flutter_math.dart';
 import 'package:ai_agent/services/local_backend.dart';
 import 'package:ai_agent/services/location_service.dart';
+import 'package:ai_agent/services/study_analysis_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_selector/file_selector.dart';
 
@@ -298,7 +299,7 @@ class _MyHomePageState extends State<MyHomePage> {
       ),
       drawer: isMobile ? buildDrawer() : null,
       drawerEdgeDragWidth: isMobile
-          ? MediaQuery.of(context).size.width * 0.25
+          ? MediaQuery.of(context).size.width * 0.16
           : null,
 
       body: Row(
@@ -442,6 +443,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   directBaseUrl: widget.directBaseUrl,
                   directApiKey: widget.directApiKey,
                   directModel: widget.directModel,
+                  isActive: selectedIndex == 3,
                 ),
               ],
             ),
@@ -582,6 +584,11 @@ class _HomeContentState extends State<HomeContent>
 
   /// 添加文件附件（代码文件读取为文本，图片转为 base64）
   Future<void> _handlePickFile() async {
+    // 预捕获 SnackBar 参数（避免 async 后使用 context）
+    final hfpMessenger = ScaffoldMessenger.of(context);
+    final hfpPadding = MediaQuery.of(context).padding.bottom;
+    final hfpIsMobile = MediaQuery.of(context).size.width < 450;
+
     final results = await openFiles(
       acceptedTypeGroups: [
         XTypeGroup(
@@ -683,12 +690,23 @@ class _HomeContentState extends State<HomeContent>
 
     if (mounted && addedCount > 0) {
       final msg = "已添加 $addedCount 个文件${hasImage ? '（图片正在OCR...）' : ''}";
-      showTopSnackBar(context, msg, bottomMargin: 142);
+      showTopSnackBarWithState(
+        messenger: hfpMessenger,
+        message: msg,
+        bottomPadding: hfpPadding,
+        isMobile: hfpIsMobile,
+        bottomMargin: 142,
+      );
     }
   }
 
   /// 后台自动 OCR 图片（优先 AI，失败回退本地 Tesseract）
   Future<void> _autoOcrImage(String name, String b64) async {
+    // 预捕获 SnackBar 参数（避免 async 后使用 context）
+    final ocrMessenger = ScaffoldMessenger.of(context);
+    final ocrPadding = MediaQuery.of(context).padding.bottom;
+    final ocrIsMobile = MediaQuery.of(context).size.width < 450;
+
     setState(() => _isOcrRunning = true);
     try {
       String ocrResult = '';
@@ -756,7 +774,13 @@ class _HomeContentState extends State<HomeContent>
       });
       if (mounted) {
         final label = aiSucceeded ? "AI" : "本地";
-        showTopSnackBar(context, "✅ $name OCR 完成（$label）", bottomMargin: 142);
+        showTopSnackBarWithState(
+          messenger: ocrMessenger,
+          message: "✅ $name OCR 完成（$label）",
+          bottomPadding: ocrPadding,
+          isMobile: ocrIsMobile,
+          bottomMargin: 142,
+        );
       }
     } catch (e) {
       debugPrint(">>> 自动OCR失败($name): $e");
@@ -767,6 +791,11 @@ class _HomeContentState extends State<HomeContent>
 
   /// OCR 识别图片
   Future<void> _handleOcr() async {
+    // 预捕获 SnackBar 参数（避免 async 后使用 context）
+    final msgCenter = ScaffoldMessenger.of(context);
+    final padBottom = MediaQuery.of(context).padding.bottom;
+    final mobileMode = MediaQuery.of(context).size.width < 450;
+
     // 选择图片文件
     final result = await openFile(
       acceptedTypeGroups: [
@@ -784,7 +813,13 @@ class _HomeContentState extends State<HomeContent>
     if (!await file.exists()) return;
 
     try {
-      showTopSnackBar(context, "正在使用本地 OCR 识别: $name ...", bottomMargin: 142);
+      showTopSnackBarWithState(
+        messenger: msgCenter,
+        message: "正在使用本地 OCR 识别: $name ...",
+        bottomPadding: padBottom,
+        isMobile: mobileMode,
+        bottomMargin: 142,
+      );
 
       final bytes = await file.readAsBytes();
       final b64 = base64Encode(bytes);
@@ -797,7 +832,13 @@ class _HomeContentState extends State<HomeContent>
       _showOcrResultDialog(fileName: name, text: ocrText, imageBase64: b64);
     } catch (e) {
       if (mounted) {
-        showTopSnackBar(context, "OCR 处理失败: $e", bottomMargin: 142);
+        showTopSnackBarWithState(
+          messenger: msgCenter,
+          message: "OCR 处理失败: $e",
+          bottomPadding: padBottom,
+          isMobile: mobileMode,
+          bottomMargin: 142,
+        );
       }
     }
   }
@@ -871,7 +912,6 @@ class _HomeContentState extends State<HomeContent>
     required String model,
     required String imageBase64,
   }) async {
-
     final apiMessages = [
       {
         "role": "user",
@@ -1131,7 +1171,34 @@ class _HomeContentState extends State<HomeContent>
         final summary = firstUserMsg.length > 20
             ? '${firstUserMsg.substring(0, 20)}...'
             : firstUserMsg;
-        saveBacklog(messages: backlogMessages, summary: summary);
+        await saveBacklog(messages: backlogMessages, summary: summary);
+        // 通知历史页面刷新
+        _historyRefreshNotifier.value++;
+
+        // 手机端：从 AI 回复中自动发现并提取学习关键词
+        final aiReply = _messages[aiMsgIndex]["text"] as String? ?? '';
+        final userMsg = text;
+        if (aiReply.isNotEmpty) {
+          if (widget.directBaseUrl != null &&
+              widget.directApiKey != null &&
+              widget.directModel != null) {
+            // 有 AI 配置 → 用 AI 分析对话提取关键词（更精准）
+            unawaited(
+              StudyAnalysisService.discoverKeywordsFromChatWithAI(
+                baseUrl: widget.directBaseUrl!,
+                apiKey: widget.directApiKey!,
+                model: widget.directModel!,
+                userMessage: userMsg,
+                aiResponse: aiReply,
+              ),
+            );
+          } else {
+            // 无 AI 配置 → 回退本地规则匹配
+            unawaited(
+              StudyAnalysisService.discoverKeywordsLocally(aiResponse: aiReply),
+            );
+          }
+        }
       } else {
         // 💻 PC 模式：通过本地后端（附带定位信息）
         debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
@@ -1182,6 +1249,9 @@ class _HomeContentState extends State<HomeContent>
   /// 记录上次通知父级的tab索引，避免动画过半时重复通知
   int _lastNotifiedChatTab = 0;
 
+  /// 历史页面刷新触发器（值变化时通知 HistoryPage 重新加载）
+  final ValueNotifier<int> _historyRefreshNotifier = ValueNotifier<int>(0);
+
   @override
   void initState() {
     super.initState();
@@ -1207,6 +1277,10 @@ class _HomeContentState extends State<HomeContent>
         _lastNotifiedChatTab = _chatTabController.index;
         widget.onChatTabChanged?.call(_chatTabController.index);
       }
+      // 切换到历史标签时自动刷新（确保看到最新记录）
+      if (_chatTabController.index == 1) {
+        _historyRefreshNotifier.value++;
+      }
     } else {
       // 动画进行中 → 仅聊天→历史方向(0→1)时提前更新
       final targetIndex = _chatTabController.index;
@@ -1216,6 +1290,8 @@ class _HomeContentState extends State<HomeContent>
           targetIndex != _lastNotifiedChatTab) {
         _lastNotifiedChatTab = targetIndex;
         widget.onChatTabChanged?.call(targetIndex);
+        // 聊天→历史方向：提前刷新
+        _historyRefreshNotifier.value++;
       }
     }
   }
@@ -1239,8 +1315,8 @@ class _HomeContentState extends State<HomeContent>
     return Column(
       children: [
         Expanded(
-          child: IndexedStack(
-            index: _chatTabController.index,
+          child: TabBarView(
+            controller: _chatTabController,
             children: [
               // 页面0：聊天消息列表 + 输入框
               Column(
@@ -1432,7 +1508,7 @@ class _HomeContentState extends State<HomeContent>
                               child: ListView.separated(
                                 scrollDirection: Axis.horizontal,
                                 itemCount: _attachments.length,
-                                separatorBuilder: (_, __) =>
+                                separatorBuilder: (_, _) =>
                                     const SizedBox(width: 8),
                                 itemBuilder: (context, index) {
                                   final att = _attachments[index];
@@ -1450,52 +1526,48 @@ class _HomeContentState extends State<HomeContent>
                           ),
                         Row(
                           children: [
-                            // 左侧竖排按钮（类似 Gemini 风格）
+                            // 左侧竖排按钮（类似 Gemini 风格）- 已放大
                             Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 // OCR 按钮
                                 IconButton(
-                                  icon: const Icon(
-                                    Icons.photo_outlined,
-                                  ),
+                                  icon: const Icon(Icons.photo_outlined),
                                   tooltip: 'OCR 识别图片',
                                   onPressed: _handleOcr,
                                   constraints: const BoxConstraints(
-                                    minWidth: 36,
-                                    minHeight: 36,
+                                    minWidth: 44, // 从 36 放大到 44
+                                    minHeight: 44,
                                   ),
                                   padding: EdgeInsets.zero,
-                                  iconSize: 20,
+                                  iconSize: 32, // 从 26 放大到 32
                                 ),
                                 // 附件按钮（带数量标记）
                                 Stack(
                                   clipBehavior: Clip.none,
                                   children: [
                                     IconButton(
-                                      icon: const Icon(
-                                        Icons.attach_file,
-                                      ),
+                                      icon: const Icon(Icons.attach_file),
                                       tooltip: '添加文件',
                                       onPressed: _handlePickFile,
                                       constraints: const BoxConstraints(
-                                        minWidth: 36,
-                                        minHeight: 36,
+                                        minWidth: 44, // 从 36 放大到 44
+                                        minHeight: 44,
                                       ),
                                       padding: EdgeInsets.zero,
-                                      iconSize: 22,
+                                      iconSize: 32, // 从 26 放大到 32
                                     ),
                                     // 附件数量标记
                                     if (_attachments.isNotEmpty)
                                       Positioned(
-                                        top: 0,
-                                        right: 0,
+                                        top: 2, // 微调位置，适应更大的按钮
+                                        right: 2, // 微调位置
                                         child: Container(
                                           padding: const EdgeInsets.all(3),
                                           decoration: BoxDecoration(
-                                            color: Theme.of(context)
-                                                .colorScheme
-                                                .primary,
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.primary,
                                             shape: BoxShape.circle,
                                           ),
                                           constraints: const BoxConstraints(
@@ -1517,7 +1589,7 @@ class _HomeContentState extends State<HomeContent>
                                 ),
                               ],
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 6),
                             Expanded(
                               child: Focus(
                                 onKeyEvent: (node, event) {
@@ -1566,17 +1638,16 @@ class _HomeContentState extends State<HomeContent>
                                         width: 1.5,
                                       ),
                                     ),
-                                    contentPadding:
-                                        const EdgeInsets.symmetric(
+                                    contentPadding: const EdgeInsets.symmetric(
                                       horizontal: 16,
                                       vertical: 12,
                                     ),
-                                  ), // InputDecoration close
-                                ), // TextField close
-                              ), // Focus close
-                            ), // Expanded close
-                            const SizedBox(width: 10),
-                            // 发送按钮
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            // 发送按钮 - 已改小
                             IconButton(
                               icon: Icon(
                                 Icons.send,
@@ -1590,13 +1661,12 @@ class _HomeContentState extends State<HomeContent>
                                           ? Colors.white
                                           : Theme.of(context).primaryColor),
                               ),
-                              iconSize: 28,
-                              constraints: const BoxConstraints(
-                                minWidth: 44,
-                                minHeight: 44,
-                              ),
-                              onPressed:
-                                  _isOcrRunning ? null : _handleSend,
+                              iconSize: 22, // 从 26 缩小到 22
+                              // 移除了 constraints 限制，使其回归较小的自然尺寸
+                              padding: const EdgeInsets.all(
+                                8,
+                              ), // 适当保留一些点击内边距，方便点击
+                              onPressed: _isOcrRunning ? null : _handleSend,
                             ),
                           ],
                         ),
@@ -1609,6 +1679,7 @@ class _HomeContentState extends State<HomeContent>
               _KeepAliveWrapper(
                 child: HistoryPage(
                   dio: widget.dio,
+                  refreshNotifier: _historyRefreshNotifier,
                   onContinue: (messages, summary) {
                     _chatTabController.animateTo(0);
                     loadHistory(messages);
@@ -3187,6 +3258,8 @@ class _SchedulePageState extends State<SchedulePage>
       _itinerary = "";
     });
 
+    showTopSnackBar(context, "正在生成日志……", leftMargin: 96, bottomMargin: 82);
+
     try {
       final dateStr =
           "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
@@ -3670,7 +3743,7 @@ class _MathInlineSyntax extends md.InlineSyntax {
   }
 }
 
-/// 文本段：普通 Markdown 或 <details> 防剧透块
+/// 文本段：普通 Markdown 或防剧透块（details 标签）
 class _TextSegment {
   final bool isDetails;
   final String summary;
@@ -3754,7 +3827,7 @@ class _SpoilerWidgetState extends State<_SpoilerWidget> {
 }
 
 /// 聊天消息：MarkdownBody + flutter_math_fork 混合渲染
-/// 支持 <details><summary> 防剧透块
+/// 支持防剧透块（details/summary 标签）
 class _MathAwareText extends StatelessWidget {
   final String text;
   final bool isUser;
@@ -3811,7 +3884,7 @@ class _MathAwareText extends StatelessWidget {
     );
   }
 
-  /// 解析 <details><summary>...</summary>...</details>
+  /// 解析 details/summary HTML 标签包裹的防剧透内容
   static List<_TextSegment> _parseDetails(String text) {
     final regex = RegExp(
       r'<details>\s*<summary>(.*?)</summary>\s*(.*?)\s*</details>',

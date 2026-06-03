@@ -89,3 +89,16 @@
   - 扩展新关键词 → 检查扩展结果中是否有已缓存的学科名（如"语文"）→ 将新关键词合并进去
   - 反向：如果新关键词是硬编码映射中的知识点，也合并到对应学科
 - **效果**：发现"小石潭记"后，搜"语文"也能搜到它
+
+### 10. 单元测试
+- 测试文件：`test/study_analysis_test.dart`（25 个用例）
+- 测试文件：`test/data_models_test.dart`（24 个用例）
+- **评分算法测试**：覆盖所有等级（优秀/良好/合格/不合格）及边缘值
+- **学科映射测试**：验证 subjectTopics 包含所有学科、每个学科至少有3个知识点
+- **反向映射测试**：验证知识点→学科的反向查找
+- **JSON 序列化测试**：MatchedConversation、DailyStudySummary、AiConfig、BacklogMessage、StudentData 的 fromJson/toJson 往返
+- **AI 配置管理测试**：getAiConfigs、getEnabledAiConfig、setAiConfigs
+- **AiConfig.copyWith 测试**：部分更新和全量更新
+- 共 **49 个测试用例**，全部通过
+
+## 📋 使用说明

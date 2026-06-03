@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
@@ -730,15 +730,52 @@ Future<Map<String, Map<String, Map<String, dynamic>>>> loadBacklogForRange({
   return result;
 }
 
-/// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端居中）
+/// 使用预捕获的 [ScaffoldMessenger] 和布局参数显示 SnackBar
+///
+/// 适用于 async 方法中避免 "BuildContext across async gaps" 警告。
+/// 在 async 操作前捕获以下参数：
+/// ```dart
+/// final messenger = ScaffoldMessenger.of(context);
+/// final bottomPadding = MediaQuery.of(context).padding.bottom;
+/// final isMobile = MediaQuery.of(context).size.width < 450;
+/// ```
+void showTopSnackBarWithState({
+  required ScaffoldMessengerState messenger,
+  required String message,
+  required double bottomPadding,
+  required bool isMobile,
+  double leftMargin = 16,
+  double bottomMargin = 6,
+}) {
+  final actualLeft = isMobile ? 0.0 : leftMargin;
+  messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(message),
+      behavior: SnackBarBehavior.floating,
+      margin: EdgeInsets.only(
+        left: actualLeft,
+        right: isMobile ? 0.0 : 16,
+        bottom: bottomMargin + bottomPadding,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      duration: const Duration(seconds: 3),
+    ),
+  );
+}
+
+/// 在屏幕底部浮动显示一条通知（从 BuildContext 自动提取参数）
+///
 /// [bottomMargin] 可自定义底部间距：输入框页面用 142，仅导航栏用 82，无导航栏用 6
-/// 在屏幕底部浮动显示一条通知（桌面端靠右侧避开侧栏，移动端靠左铺满）
 ///
 /// [leftMargin] — 左边缘间距。当有侧边导航栏（如 NavigationRail）时传入导航栏宽度。
 ///               默认 16（无侧栏，铺满宽度）。手机版（宽度 < 450）自动设为 0，
 ///               因为手机端使用 Drawer 而非固定侧栏。
-/// [bottomMargin] — 底部间距。当底部有输入栏等元件时传入其高度。
-///                  默认 6（无底部元件）。
+///
+/// ⚠️ 注意：仅在无 async 间隔的同步代码中使用。async 方法中请改用
+///    [showTopSnackBarWithState] 并预捕获参数。<｜end▁of▁thinking｜>
+/// 在 async 方法中，请在 await 之前捕获 ScaffoldMessenger / padding / isMobile，然后用 showTopSnackBarWithState 代替。
 void showTopSnackBar(
   BuildContext context,
   String message, {
@@ -746,24 +783,14 @@ void showTopSnackBar(
   double bottomMargin = 6,
 }) {
   final padding = MediaQuery.of(context).padding;
-  // 手机版：没有固定侧栏，SnackBar 应从左边缘开始
   final isMobile = MediaQuery.of(context).size.width < 450;
-  final actualLeft = isMobile ? 0.0 : leftMargin;
-
-  ScaffoldMessenger.of(context).clearSnackBars();
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      behavior: SnackBarBehavior.floating,
-      margin: EdgeInsets.only(
-        left: actualLeft,
-        right: isMobile ? 0.0 : 16,
-        bottom: bottomMargin + padding.bottom,
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      duration: const Duration(seconds: 3),
-    ),
+  showTopSnackBarWithState(
+    messenger: ScaffoldMessenger.of(context),
+    message: message,
+    bottomPadding: padding.bottom,
+    isMobile: isMobile,
+    leftMargin: leftMargin,
+    bottomMargin: bottomMargin,
   );
 }
 
