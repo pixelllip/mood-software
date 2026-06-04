@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:dio/dio.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'home_page.dart';
 import 'package:ai_agent/backend_utils.dart';
 
@@ -30,6 +30,29 @@ class _WelcomePageState extends State<WelcomePage> {
   // AI 配置列表
   List<_AiConfigFormItem> _aiConfigs = [];
   int _selectedAiIndex = -1;
+
+  // 联网搜索配置（WEB_SEARCH_CONFIG）
+  bool _webSearchEnabled = false;
+  final TextEditingController _webSearchBaseUrlController =
+      TextEditingController();
+  final TextEditingController _webSearchApiKeyController =
+      TextEditingController();
+  final TextEditingController _webSearchModelController =
+      TextEditingController();
+  List<String> _webSearchModels = [];
+  bool _isFetchingWebSearchModels = false;
+  String? _webSearchSelectedModel;
+  final TextEditingController _webSearchModelSearchController =
+      TextEditingController();
+
+  /// 搜索模型过滤
+  List<String> get _filteredWebSearchModels {
+    final query = _webSearchModelSearchController.text.trim().toLowerCase();
+    if (query.isEmpty) return _webSearchModels;
+    return _webSearchModels
+        .where((m) => m.toLowerCase().contains(query))
+        .toList();
+  }
 
   // 模型列表（刷新后填充）
   List<String> _fetchedModels = [];
@@ -84,6 +107,13 @@ class _WelcomePageState extends State<WelcomePage> {
           if (_selectedAiIndex < 0) _selectedAiIndex = 0;
           _selectedModel = aiConfigs[_selectedAiIndex].model;
         }
+
+        // 加载联网搜索配置
+        final wsc = getWebSearchConfig(config);
+        _webSearchEnabled = wsc.enabled;
+        _webSearchBaseUrlController.text = wsc.baseUrl;
+        _webSearchApiKeyController.text = wsc.apiKey;
+        _webSearchModelController.text = wsc.model;
         setState(() {});
       }
     } catch (e) {
@@ -123,6 +153,79 @@ class _WelcomePageState extends State<WelcomePage> {
       _fetchedModels = [];
       _selectedModel = null;
     });
+  }
+
+  /// 如果已选 AI 配置是通义千问，自动将 API Key 和模型照搬到联网搜索
+  void _autoFillWebSearch() {
+    if (_selectedAiIndex < 0 || _selectedAiIndex >= _aiConfigs.length) return;
+    final item = _aiConfigs[_selectedAiIndex];
+    final baseUrl = item.baseUrlController.text.trim();
+    if (!isDashScopeUrl(baseUrl)) return;
+
+    final apiKey = item.apiKeyController.text.trim();
+    if (apiKey.isNotEmpty) {
+      _webSearchApiKeyController.text = apiKey;
+    }
+    if (_webSearchModelController.text.isEmpty) {
+      _webSearchModelController.text = 'qwen3.5-flash';
+    }
+  }
+
+  /// 获取联网搜索支持的模型列表（从千问兼容模式端点拉取）
+  Future<void> _fetchWebSearchModels() async {
+    if (!mounted) return;
+    final apiKey = _webSearchApiKeyController.text.trim();
+    if (apiKey.isEmpty) {
+      showTopSnackBar(context, "请先填写搜索 API Key");
+      return;
+    }
+
+    setState(() {
+      _isFetchingWebSearchModels = true;
+      _webSearchModels = [];
+      _webSearchSelectedModel = null;
+    });
+
+    try {
+      // DashScope 可调用兼容模式 /models 获取模型列表
+      const modelsUrl =
+          'https://dashscope.aliyuncs.com/compatible-mode/v1/models';
+      final response = await Dio().get(
+        modelsUrl,
+        options: Options(
+          headers: {
+            "Authorization": "Bearer $apiKey",
+            "Content-Type": "application/json",
+          },
+          connectTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 30),
+        ),
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data;
+        final List<String> models = [];
+        if (data is Map && data['data'] is List) {
+          for (final m in data['data']) {
+            if (m is Map && m['id'] != null) {
+              models.add(m['id'].toString());
+            }
+          }
+        }
+        setState(() {
+          _webSearchModels = models;
+          _isFetchingWebSearchModels = false;
+        });
+        if (models.isEmpty && mounted) {
+          showTopSnackBar(context, "未获取到模型列表，请检查 API Key");
+        }
+      } else {
+        setState(() => _isFetchingWebSearchModels = false);
+      }
+    } catch (e) {
+      setState(() => _isFetchingWebSearchModels = false);
+      if (mounted) showTopSnackBar(context, "获取模型列表失败: $e");
+    }
   }
 
   Future<void> _fetchModels(int index) async {
@@ -312,6 +415,12 @@ class _WelcomePageState extends State<WelcomePage> {
         "Gaode_API_Key": _gaodeKeyController.text.trim(),
         "SERVER_PORT": int.tryParse(_portController.text.trim()) ?? 8080,
         "AI_CONFIGS": aiConfigList,
+        "WEB_SEARCH_CONFIG": {
+          "enabled": _webSearchEnabled,
+          "base_url": _webSearchBaseUrlController.text.trim(),
+          "api_key": _webSearchApiKeyController.text.trim(),
+          "model": _webSearchModelController.text.trim(),
+        },
       };
       await saveConfigFile(config);
       debugPrint("配置已保存至: ${projectDir.path}/config.json");
@@ -332,6 +441,8 @@ class _WelcomePageState extends State<WelcomePage> {
             setState(() {
               _currentStep += 1;
             });
+            // 进入第三步时自动填充联网搜索（若AI是千问）
+            if (_currentStep == 2) _autoFillWebSearch();
           } else {
             _completeSetup();
           }
@@ -599,12 +710,7 @@ class _WelcomePageState extends State<WelcomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _buildKeyField(
-          _gaodeKeyController,
-          "高德地图 API Key (可选)",
-          "https://console.amap.com/dev/key/app",
-          Icons.map,
-        ),
+        _buildGaodeCard(),
         const SizedBox(height: 12),
         TextField(
           controller: _portController,
@@ -617,9 +723,68 @@ class _WelcomePageState extends State<WelcomePage> {
         ),
         const SizedBox(height: 16),
         _buildFolderPickerSection(),
+        const SizedBox(height: 24),
+        _buildWebSearchSection(),
         const SizedBox(height: 16),
         const Text("点击\"继续\"保存配置并开始使用", style: TextStyle(color: Colors.grey)),
       ],
+    );
+  }
+
+  /// 高德地图 API 配置卡片
+  Widget _buildGaodeCard() {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Colors.green.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.map, size: 20, color: Colors.green),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    "高德地图 API（可选）",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.open_in_new,
+                    color: Colors.blue,
+                    size: 20,
+                  ),
+                  tooltip: "申请密钥",
+                  onPressed: () =>
+                      _openUrl("https://console.amap.com/dev/key/app"),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              "用于天气查询和地点搜索，免费申请",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _gaodeKeyController,
+              obscureText: true,
+              decoration: const InputDecoration(
+                labelText: "高德地图 API Key",
+                hintText: "请输入高德地图 Web服务 API Key",
+                prefixIcon: Icon(Icons.vpn_key),
+                isDense: true,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -724,41 +889,189 @@ class _WelcomePageState extends State<WelcomePage> {
     }
   }
 
-  Widget _buildKeyField(
-    TextEditingController controller,
-    String label,
-    String url,
-    IconData icon,
-  ) {
-    return Row(
-      children: [
-        Expanded(
-          child: TextField(
-            controller: controller,
-            decoration: InputDecoration(
-              labelText: label,
-              prefixIcon: Icon(icon),
+  /// 联网搜索配置区块
+  Widget _buildWebSearchSection() {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Colors.orange.shade200),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.language, size: 20, color: Colors.orange),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    "联网搜索（可选）",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(
+                    Icons.open_in_new,
+                    color: Colors.blue,
+                    size: 20,
+                  ),
+                  tooltip: "申请密钥",
+                  onPressed: () => _openUrl(
+                    "https://help.aliyun.com/document_detail/2712195.html",
+                  ),
+                ),
+                Switch(
+                  value: _webSearchEnabled,
+                  onChanged: (v) => setState(() => _webSearchEnabled = v),
+                  activeTrackColor: Colors.orange,
+                ),
+                Text(
+                  _webSearchEnabled ? "已开启" : "已关闭",
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                ),
+              ],
             ),
-            obscureText: true,
-          ),
+            const SizedBox(height: 4),
+            const Text(
+              "开启后 AI 可调用联网搜索获取实时信息（需 DashScope 通义千问 API）",
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            if (_webSearchEnabled) ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: _webSearchBaseUrlController,
+                decoration: const InputDecoration(
+                  labelText: "搜索 API Base URL",
+                  hintText: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+                  prefixIcon: Icon(Icons.link),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _webSearchApiKeyController,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: "搜索 API Key",
+                  hintText: "使用千问 AI 时自动继承",
+                  prefixIcon: Icon(Icons.vpn_key),
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  ElevatedButton.icon(
+                    icon: _isFetchingWebSearchModels
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh, size: 18),
+                    label: Text(
+                      _isFetchingWebSearchModels ? "获取中..." : "刷新模型列表",
+                    ),
+                    onPressed: _isFetchingWebSearchModels
+                        ? null
+                        : _fetchWebSearchModels,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                      foregroundColor: Colors.white,
+                    ),
+                  ),
+                  if (_webSearchSelectedModel != null)
+                    Flexible(
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 8),
+                        child: Chip(
+                          label: Text(
+                            "已选: $_webSearchSelectedModel",
+                            style: const TextStyle(fontSize: 12),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          side: const BorderSide(color: Colors.orange),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              if (_webSearchModels.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  "可选模型（点击选择）:",
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                TextField(
+                  controller: _webSearchModelSearchController,
+                  decoration: InputDecoration(
+                    hintText: "搜索模型...",
+                    prefixIcon: const Icon(Icons.search, size: 20),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 6,
+                    ),
+                  ),
+                  onChanged: (_) => setState(() {}),
+                ),
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 150,
+                  child: ListView.separated(
+                    itemCount: _filteredWebSearchModels.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final model = _filteredWebSearchModels[i];
+                      final isSelected = _webSearchSelectedModel == model;
+                      return ListTile(
+                        dense: true,
+                        title: Text(
+                          model,
+                          style: const TextStyle(fontSize: 13),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: isSelected
+                            ? const Icon(
+                                Icons.check_circle,
+                                color: Colors.orange,
+                                size: 20,
+                              )
+                            : null,
+                        selected: isSelected,
+                        onTap: () {
+                          setState(() {
+                            _webSearchSelectedModel = model;
+                            _webSearchModelController.text = model;
+                          });
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ],
         ),
-        IconButton(
-          icon: const Icon(Icons.open_in_new, color: Colors.blue),
-          tooltip: "获取密钥",
-          onPressed: () async {
-            if (!mounted) return;
-            final uri = Uri.parse(url);
-            final launched = await launchUrl(
-              uri,
-              mode: LaunchMode.externalApplication,
-            );
-            if (!launched && mounted) {
-              showTopSnackBar(context, "无法打开链接: $url");
-            }
-          },
-        ),
-      ],
+      ),
     );
+  }
+
+  /// 打开外部链接
+  void _openUrl(String url) async {
+    if (!mounted) return;
+    final uri = Uri.parse(url);
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) {
+      showTopSnackBar(context, "无法打开链接: $url");
+    }
   }
 
   @override
@@ -768,6 +1081,10 @@ class _WelcomePageState extends State<WelcomePage> {
     _gaodeKeyController.dispose();
     _portController.dispose();
     _modelSearchController.dispose();
+    _webSearchBaseUrlController.dispose();
+    _webSearchApiKeyController.dispose();
+    _webSearchModelController.dispose();
+    _webSearchModelSearchController.dispose();
     for (final item in _aiConfigs) {
       item.dispose();
     }

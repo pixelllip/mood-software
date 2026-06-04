@@ -150,6 +150,76 @@ Map<String, dynamic> setAiConfigs(
   return config;
 }
 
+// ========== 联网搜索配置管理 ==========
+
+/// 联网搜索配置项数据模型
+class WebSearchConfig {
+  final bool enabled;
+  final String baseUrl;
+  final String apiKey;
+  final String model;
+
+  const WebSearchConfig({
+    this.enabled = false,
+    this.baseUrl = 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    this.apiKey = '',
+    this.model = 'qwen3.5-flash',
+  });
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'base_url': baseUrl,
+    'api_key': apiKey,
+    'model': model,
+  };
+
+  factory WebSearchConfig.fromJson(Map<String, dynamic> json) =>
+      WebSearchConfig(
+        enabled: json['enabled'] == true,
+        baseUrl:
+            json['base_url']?.toString() ??
+            'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        apiKey: json['api_key']?.toString() ?? '',
+        model: json['model']?.toString() ?? 'qwen3.5-flash',
+      );
+
+  WebSearchConfig copyWith({
+    bool? enabled,
+    String? baseUrl,
+    String? apiKey,
+    String? model,
+  }) => WebSearchConfig(
+    enabled: enabled ?? this.enabled,
+    baseUrl: baseUrl ?? this.baseUrl,
+    apiKey: apiKey ?? this.apiKey,
+    model: model ?? this.model,
+  );
+}
+
+/// 从 config 中读取联网搜索配置
+WebSearchConfig getWebSearchConfig(Map<String, dynamic> config) {
+  final raw = config['WEB_SEARCH_CONFIG'];
+  if (raw is Map<String, dynamic>) {
+    return WebSearchConfig.fromJson(raw);
+  }
+  return const WebSearchConfig();
+}
+
+/// 保存联网搜索配置到 config
+Map<String, dynamic> setWebSearchConfig(
+  Map<String, dynamic> config,
+  WebSearchConfig wsc,
+) {
+  config['WEB_SEARCH_CONFIG'] = wsc.toJson();
+  return config;
+}
+
+/// 判断 AI Base URL 是否为通义千问（DashScope）
+bool isDashScopeUrl(String baseUrl) {
+  final lower = baseUrl.toLowerCase();
+  return lower.contains('dashscope') || lower.contains('aliyuncs.com');
+}
+
 /// 缓存的项目目录
 Directory? _cachedProjectDir;
 
@@ -440,6 +510,7 @@ Stream<String> directStreamChat({
   required String apiKey,
   required String model,
   required List<Map<String, String>> messages,
+  bool enableSearch = false,
 }) async* {
   final chatUrl = baseUrl.endsWith('/')
       ? '${baseUrl}chat/completions'
@@ -463,7 +534,17 @@ Stream<String> directStreamChat({
         },
         responseType: ResponseType.stream,
       ),
-      data: {"model": model, "messages": messages, "stream": true},
+      data: {
+        "model": model,
+        "messages": messages,
+        "stream": true,
+        if (enableSearch) "enable_search": true,
+        if (enableSearch)
+          "search_options": {
+            "forced_search": false,
+            "search_strategy": "turbo",
+          },
+      },
     );
 
     final stream = response.data.stream as Stream<Uint8List>;

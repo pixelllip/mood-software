@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-import 'package:location/location.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
 
@@ -44,6 +44,7 @@ class LocationService {
     if (_gpsCoordsCache == null) return null;
     return '${_gpsCoordsCache!.lat},${_gpsCoordsCache!.lng}';
   }
+
   /// 获取当前城市信息
   /// 返回 adcode（城市编码），用于天气查询等
   static Future<String> getCityAdcode() async {
@@ -86,12 +87,16 @@ class LocationService {
         final ipResult = await _tryIpLocation();
         if (ipResult != null) {
           _lastMethod = 'GPS定位+IP定位获取城市名';
-          debugPrint(">>> GPS已定位，IP定位补充城市名: ${ipResult.name}(${ipResult.adcode})");
+          debugPrint(
+            ">>> GPS已定位，IP定位补充城市名: ${ipResult.name}(${ipResult.adcode})",
+          );
           return ipResult;
         }
         // IP定位也失败 → 返回未知位置（比硬编码广州更诚实）
         _lastMethod = 'GPS定位（城市未知）';
-        debugPrint(">>> GPS已定位(${_gpsCoordsCache!.lat},${_gpsCoordsCache!.lng})，但无法获取城市名");
+        debugPrint(
+          ">>> GPS已定位(${_gpsCoordsCache!.lat},${_gpsCoordsCache!.lng})，但无法获取城市名",
+        );
         return _CityInfo(name: '未知位置', adcode: '000000');
       }
 
@@ -114,9 +119,9 @@ class LocationService {
   /// GPS坐标缓存（用于反地理编码失败后给下游使用）
   static _GpsCoords? _gpsCoordsCache;
 
-  static _GpsCoords? _getAndCacheCoords(LocationData? data) {
-    if (data != null && data.latitude != null && data.longitude != null) {
-      _gpsCoordsCache = _GpsCoords(lat: data.latitude!, lng: data.longitude!);
+  static _GpsCoords? _getAndCacheCoords(Position? data) {
+    if (data != null) {
+      _gpsCoordsCache = _GpsCoords(lat: data.latitude, lng: data.longitude);
       return _gpsCoordsCache;
     }
     return null;
@@ -176,36 +181,37 @@ class LocationService {
   }
 
   /// 尝试获取GPS位置
-  static Future<LocationData?> _getGpsLocation() async {
+  static Future<Position?> _getGpsLocation() async {
     try {
-      final location = Location();
-
-      bool serviceEnabled = await location.serviceEnabled();
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
-        serviceEnabled = await location.requestService();
-        if (!serviceEnabled) {
-          debugPrint(">>> GPS服务未开启");
-          return null;
-        }
+        await Geolocator.openLocationSettings();
+        debugPrint(">>> GPS服务未开启，已请求开启");
+        return null;
       }
 
-      PermissionStatus permission = await location.hasPermission();
-      if (permission == PermissionStatus.denied) {
-        permission = await location.requestPermission();
-        if (permission == PermissionStatus.denied) {
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
           debugPrint(">>> GPS权限被拒绝");
           return null;
         }
       }
 
-      if (permission == PermissionStatus.deniedForever) {
+      if (permission == LocationPermission.deniedForever) {
         debugPrint(">>> GPS权限被永久拒绝");
         return null;
       }
 
-      // 获取位置（设置超时）
-      final locationData = await location.getLocation();
-      return locationData;
+      // 获取位置
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      return position;
     } catch (e) {
       debugPrint(">>> 获取GPS位置失败: $e");
       return null;

@@ -8,9 +8,9 @@
 ![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows-FF6B6B)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
-**AI 驱动的多平台智能学伴工具 —— 聊天 · 查成绩 · 管日程 · 全能助手**
+**AI 驱动的多平台智能学伴工具 —— 聊天 · 查成绩 · 管日程 · 学习分析 · 全能助手**
 
-> 🏛️ **项目溯源**：本项目的**核心逻辑最早以 Python 实现**（`backend/`），作为架构原型与概念验证。随后以 Python 原型为蓝本，重构为 **Kotlin 后端 + Flutter 前端**的多平台架构。Python 部分现作为**历史存档与参考实现**保留。
+> 🏛️ **项目溯源**：本项目的**核心逻辑最早以 Python 实现**，作为架构原型与概念验证。随后以 Python 原型为蓝本，重构为 **Kotlin 后端 + Flutter 前端**的多平台架构。
 
 </div>
 
@@ -44,56 +44,57 @@
 - 日程以 Markdown 格式存储（`Schedule/{date}.md`）
 - 支持 Markdown 富文本渲染查看
 
+### � 学习分析
+- **记录查询**：按关键词（自动发现+自定义）匹配当日对话记录
+- **AI 关键词扩展**：自动联想同义词，提升匹配召回率
+- **学习总结**：根据匹配条数+日程完成率综合评分（优秀/良好/合格/不合格）
+- **AI 鼓励语**：等级变化时自动生成个性化鼓励语
+- **日程完成确认**：每天首次访问弹窗勾选已完成事项
+
 ### 🖼️ 图像识别 & 生成
 - **图像识别**：集成百度智能云，支持车型、菜品、动物、植物等多场景识别
 - **图像生成**：集成 Stable Diffusion WebUI API，文字生图
 
 ### 🌐 联网搜索
-- 集成通义千问联网搜索能力，实时获取网络信息
+- 模型内置联网搜索（`enable_search` 参数），自动获取实时网络信息
+- 可独立配置开关，与 AI 聊天共享 API Key
 
 ### 🌤️ 实用工具
 - **实时天气查询**（高德地图 API）
 - **待办清单生成**（按时间段组织）
 - **交通路况查询**
 - **对话记录管理**（Backlog 系统）
+- **关键词发现**：AI 自动从对话记录中提取学习关键词
 - 灵活的**系统指令自定义**
 
 ---
 
 ## 🏗️ 项目架构
 
-> 💡 **架构演进说明**：Python 后端（`backend/`）是本项目的**原型基础与参考实现**，Kotlin 后端与 Flutter 前端均以其为蓝本设计开发。当前 Python 后端不再作为运行时组件，仅作为**架构参考与历史存档**保留。
+> 💡 **架构演进说明**：Python 后端（`backend/`）是本项目的**原型基础与参考实现**，Kotlin 后端与 Flutter 前端均以其为蓝本设计开发。当前 Python 后端不再作为运行时组件。
 
 ```
 academic-aegis/
 ├── lib/                          # 🎯 Flutter 前端（跨平台 UI） ← 当前核心
 │   ├── main.dart                 # 应用入口、配置加载、平台路由
-│   ├── welcome.dart              # 首次启动配置向导
-│   ├── home_page.dart            # 主页（聊天/成绩/日程三 Tab）
-│   ├── settings_page.dart        # 设置页
-│   ├── history_page.dart         # 历史对话记录
-│   ├── score_result_page.dart    # 成绩查询结果页
-│   ├── schedule_detail_page.dart # 日程详情查看页
 │   ├── backend_utils.dart        # 后端通信、直连 AI、配置管理
-│   ├── local_backend.dart        # 📱 Android 本地服务（成绩/日程）
+│   ├── pages/
+│   │   ├── welcome.dart          # 首次启动配置向导
+│   │   ├── home_page.dart        # 主页（聊天/成绩/日程/学习分析 四 Tab）
+│   │   ├── history_page.dart     # 历史对话记录
+│   │   ├── score_result_page.dart # 成绩查询结果页
+│   │   ├── schedule_detail_page.dart # 日程详情查看页
+│   │   ├── settings/
+│   │   │   ├── settings_page.dart      # 设置页
+│   │   │   └── api_settings_page.dart   # API 独立设置页（AI + 联网搜索 + 高德）
+│   │   └── study/
+│   │       └── study_analysis_page.dart # 学习分析页（记录查询 + 学习总结）
+│   ├── services/
+│   │   ├── local_backend.dart    # 📱 Android 本地服务（成绩/日程）
+│   │   ├── study_analysis_service.dart # 学习分析服务（关键词/评分/鼓励语）
+│   │   └── location_service.dart # 📡 定位服务（GPS → 高德反地理编码 → IP）
 │   ├── instructions.txt          # 系统指令模板
-│   ├── TODO.md / DONE.md         # 开发笔记
-│   └── Tools/                    # 辅助脚本与工具
-│       ├── tools.py              # 🗄 原型工具定义（Python）
-│       ├── Score_Management/     # 🗄 原型成绩管理
-│       ├── Task/                 # 🗄 原型任务规划
-│       └── EasterEgg.bat
-│
-├── backend/                      # 🗄 Python 原型后端（Flask，参考存档）
-│   ├── app.py                    # Flask 服务入口
-│   ├── requirements.txt          # Python 依赖
-│   ├── core/
-│   │   ├── ai_agent.py           # AI Agent 核心逻辑（参考实现）
-│   │   └── memory.py             # Backlog & 指令管理（参考实现）
-│   └── tools/
-│       ├── tools.py              # 工具集合原型
-│       ├── score_management/     # 成绩管理服务原型
-│       └── task/                 # 任务规划服务原型
+│   ├── configure.md / TODO.md / DONE.md  # 开发笔记
 │
 ├── backend_kotlin/               # ☕ Kotlin 后端（Ktor，PC 用）← 当前核心
 │   ├── build.gradle.kts          # Gradle 构建配置
@@ -111,7 +112,10 @@ academic-aegis/
 ├── web/                          # 🌐 Web 端
 │
 ├── pubspec.yaml                  # Flutter 依赖声明
-├── build_package.ps1             # 🚀 一键构建脚本
+├── build_package.ps1             # 🚀 一键构建脚本（PowerShell）
+├── build_package.sh              # 🚀 一键构建脚本（Bash）
+├── configure.ps1 / configure.sh  # 开发环境配置脚本
+├── analysis.md                   # 静态分析配置
 ├── analysis_options.yaml         # Dart 分析配置
 └── README.md
 ```
@@ -134,7 +138,7 @@ academic-aegis/
 
 ### 1️⃣ 配置 AI 密钥
 
-首次启动会自动生成 `config.json` 配置模板，或在欢迎页引导填写。支持配置**多个 AI 提供商**：
+首次启动会自动生成 `config.json` 配置模板，或在欢迎页引导填写。支持配置**多个 AI 提供商**和**独立联网搜索**：
 
 ```json
 {
@@ -150,11 +154,20 @@ academic-aegis/
       "model": "qwen-plus",
       "enabled": true
     }
-  ]
+  ],
+  "WEB_SEARCH_CONFIG": {
+    "enabled": true,
+    "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "api_key": "sk-xxx",
+    "model": "qwen3.5-flash"
+  }
 }
 ```
 
-> 💡 **提示**：AI 配置兼容任意 OpenAI 格式的 API，可自由切换不同模型。
+> 💡 **提示**：
+> - AI 配置兼容任意 OpenAI 格式的 API，可自由切换不同模型。
+> - `WEB_SEARCH_CONFIG` 为独立联网搜索配置，若 AI 选择的是通义千问，API Key 和模型会自动填充。
+> - 不配置 `WEB_SEARCH_CONFIG` 时向后兼容，沿用 `DASHSCOPE_API_KEY` 旧字段。
 
 ### 2️⃣ 运行应用
 
@@ -164,14 +177,34 @@ flutter pub get
 
 # --- Windows 桌面端 ---
 # 自动构建 Kotlin 后端 Fat JAR + Flutter
-.\build_package.ps1 -Target windows
+.\build_package.ps1 -Target windows    # PowerShell
+./build_package.sh -t windows          # Bash
 
 # --- Android 手机端 ---
 # Android 端自动直连 AI API，无需启动任何后端
-.\build_package.ps1 -Target android
+.\build_package.ps1 -Target android    # PowerShell
+./build_package.sh -t android          # Bash
 
 # 或直接调试运行
 flutter run
+```
+
+### 跨平台构建脚本
+
+| 脚本 | 平台 | 用途 |
+|------|------|------|
+| `build_package.ps1` | Windows (PowerShell) | 一键构建 + JAR 打包 |
+| `build_package.sh` | Linux / macOS (Bash) | 一键构建 + JAR 打包 |
+
+```bash
+# 所有支持的参数
+./build_package.sh -t windows    # Windows 桌面
+./build_package.sh -t linux      # Linux 桌面
+./build_package.sh -t macos      # macOS 桌面
+./build_package.sh -t android    # Android APK
+./build_package.sh -t ios        # iOS (仅 macOS 宿主)
+./build_package.sh -t desktop    # 所有桌面端
+./build_package.sh -t all        # 全平台
 ```
 
 ---
@@ -183,6 +216,7 @@ flutter run
 | 🤖 AI 聊天 | ✅ 直连 API | ✅ Kotlin 后端 | ✅ Kotlin 后端 | ✅ Kotlin 后端 |
 | 📊 成绩查询 | ✅ 本地文件 | ✅ Kotlin 后端 | ✅ Kotlin 后端 | ✅ Kotlin 后端 |
 | 📅 日程管理 | ✅ 本地文件 | ✅ Kotlin 后端 | ✅ Kotlin 后端 | ✅ Kotlin 后端 |
+| � 学习分析 | ✅ 本地文件 | ✅ Kotlin 后端 | ✅ Kotlin 后端 | ✅ Kotlin 后端 |
 | 📜 历史记录 | ✅ 本地文件 | ✅ Kotlin 后端 | ✅ Kotlin 后端 | ✅ Kotlin 后端 |
 | 🔧 设置页 | ✅ | ✅ | ✅ | ✅ |
 
@@ -196,11 +230,10 @@ flutter run
 |----|------|------|:----:|
 | **UI 框架** | Flutter / Dart | 跨平台用户界面 | 🟢 活跃 |
 | **PC 后端** | Kotlin + Ktor | HTTP 服务、SSE 流式 AI 调用 | 🟢 活跃 |
-| **原型参考** | Python + Flask | AI Agent 核心逻辑、工具链（历史存档） | 🔴 存档 |
+| **原型参考** | Python + PySide6 | AI Agent 核心逻辑、工具链（历史存档） | 🔴 清除 |
 | **AI 引擎** | DashScope / OpenAI API | 大语言模型推理 | 🟢 活跃 |
-| **图像识别** | 百度智能云 API | 多场景图片分析 | 🟢 活跃 |
 | **图像生成** | Stable Diffusion WebUI | 本地文生图 | 🟢 活跃 |
-| **联网搜索** | 通义千问 WebSearch | 实时网络信息 | 🟢 活跃 |
+| **联网搜索** | 通义千问 (enable_search) | 实时网络信息 | 🟢 活跃 |
 | **天气服务** | 高德地图 API | 实时天气查询 | 🟢 活跃 |
 | **数据存储** | 本地 JSON 文件 | 成绩、对话记录、日程 | 🟢 活跃 |
 
@@ -214,12 +247,10 @@ flutter run
 |------|---------|---------|:----:|
 | `get_weather` | 查询实时天气 | 高德地图 | ☕ Kotlin |
 | `image_recognition` | 多场景图像识别 | 百度智能云 | ☕ Kotlin |
-| `qwen_websearch` | 联网搜索问答 | DashScope | ☕ Kotlin |
 | `task_organizer` | 生成待办清单 | — | ☕ Kotlin |
 | `get_local_backlog` | 获取当前对话记录 | — | ☕ Kotlin / 📱 Dart |
 | `backlog_read_range` | 按时间段查询历史 | — | ☕ Kotlin / 📱 Dart |
 | `get_traffic` | 查询驾车路况 | 高德地图 | 🐍 Python 原型 |
-| `image_generation` | 文生图 | SD WebUI | 🐍 Python 原型 |
 
 ---
 
@@ -271,32 +302,6 @@ flutter run
 ### 添加新工具（Kotlin 后端）
 
 工具逻辑实现在 `backend_kotlin/` 中，遵循 Ktor 路由模式：在对应 Service 中新增端点，Flutter 前端通过 Dio 调用。
-
-### 添加新工具（Python 原型参考）
-
-若需先在 Python 中验证工具可行性，可在 `backend/tools/tools.py` 中参考以下模式：
-
-1. **定义 Pydantic 模型**
-```python
-class NewTool(BaseModel):
-    """工具描述"""
-    param: str = Field(..., description="参数说明")
-```
-
-2. **实现方法**
-```python
-def new_tool(self, arguments: Dict[str, Any]):
-    """具体实现"""
-    pass
-```
-
-3. **注册到工具列表**
-```python
-self.tool_list = build_tools_list([..., NewTool])
-```
-
-验证通过后，移植到 Kotlin 后端投入正式使用。
-
 ---
 
 ## 📋 开发路线图
@@ -322,12 +327,12 @@ self.tool_list = build_tools_list([..., NewTool])
 
 ## 📬 更新日志
 
+- **2026-05-29** — 新增了学习分析界面；接入本地/AI的OCR服务，现在可以上传附件；学习分析界面等待队友设计好关键词匹配度搜索；现在AI聊天可以尝试调用markdown格式和Latex公式格式。
 - **2026-05-23** — 完成 Android 手机端完整适配（直连 AI + 本地成绩/日程/历史）
 - **2026-05-21** — 将 Python 后端 重构为Kotlin后端，Flutter 前端上线
 - **2026-05-17** — 完成 Flutter 前端的主要设计
-- **2026-04-16** — PyQt 前端上线，支持聊天/成绩/日程三 Tab
+- **2026-04-16** — PyQt (PySide6) 前端上线，支持聊天/成绩/日程三 Tab
 - **2026-04-03** — 日程规划、图像识别、联网搜索功能上线
-- **2026-03-30** — 集成 Stable Diffusion WebUI，图片生成功能上线
 - **2026-03-29** — 对话记录管理系统、天气查询功能上线
 - **2026-03-26** — 项目初始化，Python AI Agent 核心架构搭建
 

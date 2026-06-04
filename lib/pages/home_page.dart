@@ -518,7 +518,6 @@ class _HomeContentState extends State<HomeContent>
     '路况',
     '在哪里',
     '怎么去',
-    '到',
     '地址',
     '附近',
     '周边',
@@ -1121,6 +1120,10 @@ class _HomeContentState extends State<HomeContent>
         }
 
         // 构建消息列表（含系统提示和定位信息）
+        final now = DateTime.now();
+        final dateStr = "${now.year}年${now.month}月${now.day}日";
+        final timeStr =
+            "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
         final locationLine = gpsHint != null && cityName == '未知位置'
             ? "【用户位置】GPS坐标: $gpsHint（城市名解析失败）"
             : "【用户当前城市】$cityName（城市编码：$cityAdcode）";
@@ -1129,6 +1132,7 @@ class _HomeContentState extends State<HomeContent>
             "role": "system",
             "content":
                 "你是一个智能学习助手'星火学伴'。请用自然、友好的中文回答用户的问题。"
+                "当前日期：$dateStr，当前时间：$timeStr。"
                 "当回答涉及成绩、天气等数据时，要用通俗的语言描述，不要返回原始数据格式。"
                 "\n\n$locationLine"
                 "当用户询问天气、路况等需要位置信息的问题时，请使用上述信息。",
@@ -1136,11 +1140,17 @@ class _HomeContentState extends State<HomeContent>
           ...historyToSend,
         ];
 
+        // 检查是否启用了联网搜索
+        final config = await loadConfigFile();
+        final wsc = getWebSearchConfig(config);
+        final enableWebSearch = wsc.enabled && isDashScopeUrl(baseUrl);
+
         final stream = directStreamChat(
           baseUrl: baseUrl,
           apiKey: apiKey,
           model: model,
           messages: apiMessages,
+          enableSearch: enableWebSearch,
         );
 
         await for (final chunk in stream) {
@@ -3967,7 +3977,11 @@ class _MathAwareText extends StatelessWidget {
       a: TextStyle(color: isDark ? const Color(0xFF64B5F6) : Colors.blue),
       strong: TextStyle(color: textColor, fontWeight: FontWeight.bold),
       blockquote: TextStyle(
-        color: isDark ? const Color(0xFFBDBDBD) : Colors.black54,
+        color: isDark ? const Color(0xFFE0E0E0) : Colors.black54,
+      ),
+      blockquoteDecoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E3A3A) : const Color(0xFFF0F7FF),
+        borderRadius: BorderRadius.circular(6),
       ),
       tableBorder: TableBorder.all(
         color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,

@@ -213,12 +213,17 @@ class AiAgent {
     }
 
     private fun buildMessageList(): MutableList<Map<String, Any>> {
+        val today = java.time.LocalDate.now()
+        val now = java.time.LocalTime.now()
+        val enableSearchNote = if (EnvConfig.webSearchConfig.enabled) "\n【联网搜索】已开启联网搜索，需要实时信息时模型会自动搜索互联网。" else ""
         val systemPrompt = "你是一个集成了一系列本地和线上工具的超级助理。你的名字是星火学伴 AI。\n" +
+                "【当前日期】今天是 ${today}，当前时间 ${now.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))}。\n" +
                 "【核心规则】：\n" +
                 "1. 当用户询问天气、路况、搜索信息、识别图片等需求时，必须直接调用对应的工具，不要回复说你做不到。\n" +
                 "2. 如果工具调用需要参数（如城市名），请从用户对话中提取。\n" +
                 "3. 你的回答应当简洁、友好且有用。\n" +
-                "【当前可用工具】：get_weather, get_traffic, qwen_websearch, image_recognition, precise_search"
+                "【当前可用工具】：get_weather, get_traffic, image_recognition, precise_search" +
+                enableSearchNote
 
         val messages = mutableListOf<Map<String, Any>>(
             mapOf("role" to "system", "content" to systemPrompt)
@@ -253,6 +258,14 @@ class AiAgent {
             // 必须传入 tools，否则模型不知道能调用什么工具
             put("tools", buildToolsList())
             put("tool_choice", "auto")
+            // 联网搜索：模型自动判断是否需要联网获取实时信息
+            if (EnvConfig.webSearchConfig.enabled) {
+                put("enable_search", true)
+                put("search_options", JSONObject().apply {
+                    put("forced_search", false)  // 让模型自行判断
+                    put("search_strategy", "turbo")
+                })
+            }
         }
         return jsonObj.toString()
     }
@@ -299,25 +312,6 @@ class AiAgent {
                         })
                     })
                     put("required", org.json.JSONArray(listOf("origin", "destination")))
-                })
-            })
-        })
-
-        // qwen_websearch
-        toolsArray.put(JSONObject().apply {
-            put("type", "function")
-            put("function", JSONObject().apply {
-                put("name", "qwen_websearch")
-                put("description", "通义千问联网搜索问答")
-                put("parameters", JSONObject().apply {
-                    put("type", "object")
-                    put("properties", JSONObject().apply {
-                        put("query", JSONObject().apply {
-                            put("type", "string")
-                            put("description", "用户要搜索或提问的问题")
-                        })
-                    })
-                    put("required", org.json.JSONArray(listOf("query")))
                 })
             })
         })
@@ -563,9 +557,9 @@ class AiAgent {
                     val strategy = args.optInt("strategy", 0)
                     tool.getTraffic(origin, destination, strategy)?.toString() ?: "获取路况失败"
                 }
-                "qwen_websearch" -> {
+                "web_search", "qwen_websearch" -> {
                     val query = args.optString("query", "")
-                    tool.qwenWebsearch(query)
+                    tool.webSearch(query)
                 }
                 "locate_ip" -> {
                     val ip = args.optString("ip", "")

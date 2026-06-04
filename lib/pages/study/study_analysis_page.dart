@@ -223,6 +223,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
       message: "正在查询匹配记录...",
       bottomPadding: padBottom,
       isMobile: isMobileMode,
+      leftMargin: 96,
       bottomMargin: 82,
     );
     setState(() => _isLoading = true);
@@ -266,6 +267,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
           message: "查询失败: $e",
           bottomPadding: padBottom,
           isMobile: isMobileMode,
+          leftMargin: 96,
           bottomMargin: 82,
         );
       }
@@ -300,6 +302,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
       message: "正在扫描对话记录，发现学习关键词...",
       bottomPadding: padBottom,
       isMobile: isMobileMode,
+      leftMargin: 96,
       bottomMargin: 82,
     );
     setState(() => _isLoading = true);
@@ -339,6 +342,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
           message: "未发现新的学习关键词",
           bottomPadding: padBottom,
           isMobile: isMobileMode,
+          leftMargin: 96,
           bottomMargin: 82,
         );
         return;
@@ -356,6 +360,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
           message: "发现 ${discovered.length} 个关键词，但都已存在",
           bottomPadding: padBottom,
           isMobile: isMobileMode,
+          leftMargin: 96,
           bottomMargin: 82,
         );
         return;
@@ -419,6 +424,7 @@ class _RecordQueryTabState extends State<_RecordQueryTab> {
           message: "发现关键词失败: $e",
           bottomPadding: padBottom,
           isMobile: isMobileMode,
+          leftMargin: 96,
           bottomMargin: 82,
         );
       }
@@ -880,6 +886,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       message: "正在生成学习鼓励语...",
       bottomPadding: padBottom,
       isMobile: isMobileMode,
+      leftMargin: 96,
       bottomMargin: 82,
     );
 
@@ -894,7 +901,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
             matchedCount: _summary!.matchedCount,
             completedSchedules: _summary!.completedSchedules,
             totalSchedules: _summary!.totalSchedules,
-            dio: widget.dio,
+            dio: widget.useDirectApi ? null : widget.dio,
           );
 
       if (mounted) {
@@ -1000,7 +1007,7 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
       keywords: _keywords,
       completedSchedules: completed,
       totalSchedules: _scheduleItems.length,
-      dio: widget.dio,
+      dio: widget.useDirectApi ? null : widget.dio,
       useAiExpansion: true,
     );
 
@@ -1176,7 +1183,9 @@ class _StudySummaryTabState extends State<_StudySummaryTab> {
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                color: themeColor.withValues(alpha: 0.05),
+                color: isDark
+                    ? themeColor.withValues(alpha: 0.2)
+                    : themeColor.withValues(alpha: 0.08),
                 child: Padding(
                   padding: const EdgeInsets.all(16),
                   child: Row(

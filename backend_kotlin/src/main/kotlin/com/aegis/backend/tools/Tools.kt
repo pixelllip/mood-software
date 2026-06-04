@@ -1,6 +1,7 @@
 package com.aegis.backend.tools
 
 import com.aegis.backend.core.Backlog
+import com.aegis.backend.core.ChatHistoryResult
 import com.aegis.backend.core.EnvConfig
 import com.aegis.backend.tools.precise_search.PreciseSearch
 import com.aegis.backend.tools.score_management.StudentScoreService
@@ -9,7 +10,6 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
-import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -117,15 +117,22 @@ class AgentTools {
     }
 
     /**
-     * 通义千问联网搜索
+     * 联网搜索 — 优先使用 WEB_SEARCH_CONFIG 配置，回退旧版 DashScope 逻辑
      */
-    fun qwenWebsearch(query: String): String {
-        val apiKey = EnvConfig.dashscopeApiKey.ifBlank { EnvConfig.openaiApiKey }
-        if (apiKey.isBlank()) return "请先在 config.json 中配置 API Key"
+    fun webSearch(query: String): String {
+        val cfg = EnvConfig.webSearchConfig
+        val apiKey = cfg.apiKey.ifBlank {
+            EnvConfig.dashscopeApiKey.ifBlank { EnvConfig.openaiApiKey }
+        }
+        if (apiKey.isBlank()) return "请先在 config.json 中配置 WEB_SEARCH_CONFIG 或 DASHSCOPE_API_KEY"
 
-        val url = "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+        val url = cfg.baseUrl.ifBlank {
+            "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation"
+        }
+        val model = cfg.model.ifBlank { "qwen3.5-flash" }
+
         val jsonBody = JSONObject().apply {
-            put("model", "qwen3.5-flash")
+            put("model", model)
             put("input", JSONObject().apply {
                 put("messages", listOf(
                     mapOf("role" to "user", "content" to query)
@@ -146,11 +153,26 @@ class AgentTools {
             val response = client.newCall(request).execute()
             val body = response.body?.string() ?: return "搜索失败：无响应"
             val json = JSONObject(body)
-            json.optJSONObject("output")?.optString("text", "")?.trim() ?: "搜索失败"
+            // 先检查 API 是否返回了错误
+            if (json.has("code")) {
+                val code = json.optString("code", "")
+                val msg = json.optString("message", "")
+                return "搜索失败：[$code] $msg"
+            }
+            val text = json.optJSONObject("output")?.optString("text", "")?.trim()
+            if (text.isNullOrEmpty()) {
+                return "搜索失败：API 返回异常\n$body"
+            }
+            text
         } catch (e: Exception) {
             "搜索失败：${e.message}"
         }
     }
+
+    /**
+     * 通义千问联网搜索（旧名兼容，委托到 webSearch）
+     */
+    fun qwenWebsearch(query: String): String = webSearch(query)
 
     /**
      * 精准搜索 — 接收关键词，AI 扩展联想词后在 backlog JSON 文件中匹配
@@ -199,7 +221,7 @@ class AgentTools {
     /**
      * 加载对话记录
      */
-    fun loadBacklog(backlog: Backlog, targetDate: String): Map<String, Backlog.ChatHistoryResult> {
+    fun loadBacklog(backlog: Backlog, targetDate: String): Map<String, ChatHistoryResult> {
         return backlog.loadBacklog(targetDate)
     }
 

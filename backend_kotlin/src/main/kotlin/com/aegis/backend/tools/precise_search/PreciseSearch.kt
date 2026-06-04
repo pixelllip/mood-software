@@ -1,9 +1,7 @@
 package com.aegis.backend.tools.precise_search
-
-import com.aegis.backend.core.Backlog
+import com.aegis.backend.core.ChatMessage
 import com.aegis.backend.core.EnvConfig
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -124,7 +122,7 @@ class PreciseSearch {
             .forEach { jsonFile ->
                 try {
                     val jsonContent = jsonFile.readText(Charsets.UTF_8)
-                    val messages = json.decodeFromString<List<Backlog.ChatMessage>>(jsonContent)
+                    val messages = json.decodeFromString<List<ChatMessage>>(jsonContent)
 
                     val matches = messages.filter { msg ->
                         expandedWords.any { word ->
@@ -147,7 +145,7 @@ class PreciseSearch {
 
     // ========== 内部数据结构 ==========
     @Serializable
-    data class FileMatch(val filePath: String, val sentences: List<Backlog.ChatMessage>)
+    data class FileMatch(val filePath: String, val sentences: List<ChatMessage>)
     @Serializable
     data class SearchResult(
         val expandedWords: List<String>,
@@ -170,7 +168,7 @@ class PreciseSearch {
         val file_path: String,
         val file_name: String,
         val match_count: Int,
-        val sentences: List<Backlog.ChatMessage>
+        val sentences: List<ChatMessage>
     )
 
     /**
@@ -332,7 +330,7 @@ class PreciseSearch {
 
             for (file in files) {
                 try {
-                    val messages = json.decodeFromString<List<Backlog.ChatMessage>>(file.readText(Charsets.UTF_8))
+                    val messages = json.decodeFromString<List<ChatMessage>>(file.readText(Charsets.UTF_8))
                     messages.filter { it.role == "user" }
                         .map { it.content.take(100) }
                         .let { questions.addAll(it) }

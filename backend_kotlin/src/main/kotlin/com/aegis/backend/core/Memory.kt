@@ -110,16 +110,16 @@ class Backlog {
         }
         return results
     }
-
-    @Serializable
-    data class ChatMessage(val role: String, val content: String)
-
-    @Serializable
-    data class SummaryMeta(val summary: String)
-
-    @Serializable
-    data class ChatHistoryResult(val messages: List<ChatMessage>, val summary: String)
 }
+
+@Serializable
+data class ChatMessage(val role: String, val content: String)
+
+@Serializable
+data class SummaryMeta(val summary: String)
+
+@Serializable
+data class ChatHistoryResult(val messages: List<ChatMessage>, val summary: String)
 
 /**
  * 指令文件管理 (Instructions)
@@ -168,6 +168,16 @@ data class AiConfigItem(
 )
 
 /**
+ * 联网搜索配置项数据类
+ */
+data class WebSearchConfig(
+    val enabled: Boolean = false,
+    val baseUrl: String = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    val apiKey: String = "",
+    val model: String = "qwen3.5-flash"
+)
+
+/**
  * 环境配置，唯一从 Academic Aegis/config.json 读取
  * 不存在则自动生成模板
  */
@@ -209,6 +219,12 @@ object EnvConfig {
     val gaodeApiKey: String by lazy { ensureLoaded(); (_config["Gaode_API_Key"] as? String) ?: "" }
 
     val dashscopeApiKey: String by lazy { ensureLoaded(); (_config["DASHSCOPE_API_KEY"] as? String) ?: "" }
+
+    // ========== 联网搜索配置 ==========
+    val webSearchConfig: WebSearchConfig by lazy {
+        ensureLoaded()
+        parseWebSearchConfig(_config["WEB_SEARCH_CONFIG"])
+    }
 
     @Suppress("unused")
     val studentId: String by lazy { ensureLoaded(); (_config["STUDENT_ID"] as? String) ?: "" }
@@ -257,6 +273,17 @@ object EnvConfig {
                 )
             } catch (_: Exception) { null }
         }
+    }
+
+    private fun parseWebSearchConfig(raw: Any?): WebSearchConfig {
+        if (raw !is Map<*, *>) return WebSearchConfig()
+        return WebSearchConfig(
+            enabled = (raw["enabled"] as? Boolean) ?: false,
+            baseUrl = (raw["base_url"] as? String)
+                ?: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            apiKey = (raw["api_key"] as? String) ?: "",
+            model = (raw["model"] as? String) ?: "qwen3.5-flash"
+        )
     }
 
     // ========== 加载逻辑 ==========

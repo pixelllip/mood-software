@@ -59,4 +59,5 @@ kotlin {
 
 tasks.withType<JavaCompile> {
     options.release.set(17)
+    options.compilerArgs.add("-Xlint:-options")
 }
