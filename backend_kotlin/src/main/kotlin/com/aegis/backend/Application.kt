@@ -21,7 +21,7 @@ import io.ktor.server.routing.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -46,7 +46,16 @@ data class AddScoreRequest(
     val id: String? = null,
     val student_id: String? = null,
     val name: String? = null,
-    val scores: List<Map<String, Double>>? = null
+    val scores: List<Map<String, JsonElement>>? = null,
+    val label: String? = null,
+    val exam_type: String? = null
+)
+
+@Serializable
+data class UpdateTagRequest(
+    val id: String = "",
+    val subject: String = "",
+    val tag: String = ""
 )
 
 @Serializable
@@ -69,7 +78,7 @@ data class ScheduleResponse(
 @Serializable
 data class QueryResponse(
     val name: String? = null,
-    val scores: Map<String, Double>? = null,
+    val scores: Map<String, JsonElement>? = null,
     val error: String? = null,
     val students: List<StudentData>? = null
 )
@@ -267,7 +276,8 @@ fun Application.module() {
                     val student = results[0]
                     call.respond(QueryResponse(
                         name = student.name,
-                        scores = student.scores
+                        scores = student.scores,
+                        students = listOf(student)
                     ))
                 } else {
                     call.respond(QueryResponse(students = results))
@@ -277,17 +287,23 @@ fun Application.module() {
             }
         }
 
-        // POST /add - 添加成绩
+        // POST /add - 添加成绩（支持标签和对象格式）
         post("/add") {
             try {
                 val data = call.receive<AddScoreRequest>()
                 val studentId = data.student_id ?: data.id ?: ""
                 val name = data.name ?: ""
-                val formattedScores = mutableMapOf<String, Double>()
+                val formattedScores = mutableMapOf<String, JsonElement>()
                 data.scores?.forEach { map ->
                     map.forEach { (k, v) -> formattedScores[k] = v }
                 }
-                val msg = scoreService.addScore(studentId, name, formattedScores)
+                val msg = scoreService.addScore(
+                    studentId = studentId,
+                    name = name,
+                    scores = formattedScores,
+                    label = data.label,
+                    examType = data.exam_type
+                )
                 call.respond(AddResponse(message = msg))
             } catch (e: Exception) {
                 println(">>> /add 异常: ${e.message}")
@@ -320,6 +336,30 @@ fun Application.module() {
                 call.respond(DeleteResponse(message = "Subject deleted successfully"))
             } else {
                 call.respond(ErrorResponse(error = "Failed to delete subject"))
+            }
+        }
+
+        // POST /update/tag - 更新单科成绩标签
+        post("/update/tag") {
+            try {
+                val data = call.receive<UpdateTagRequest>()
+                if (data.id.isBlank() || data.subject.isBlank() || data.tag.isBlank()) {
+                    call.respond(ErrorResponse(error = "id, subject and tag are required"))
+                    return@post
+                }
+                val success = scoreService.updateSubjectTag(
+                    studentId = data.id,
+                    subject = data.subject,
+                    tag = data.tag
+                )
+                if (success) {
+                    call.respond(AddResponse(message = "标签已更新"))
+                } else {
+                    call.respond(ErrorResponse(error = "未找到该学生"))
+                }
+            } catch (e: Exception) {
+                println(">>> /update/tag 异常: ${e.message}")
+                call.respond(ErrorResponse(error = "更新标签失败: ${e.message}"))
             }
         }
 

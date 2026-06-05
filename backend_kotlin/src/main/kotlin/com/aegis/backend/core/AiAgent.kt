@@ -1,6 +1,7 @@
 package com.aegis.backend.core
 
 import com.aegis.backend.tools.AgentTools
+import kotlinx.serialization.json.*
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -573,11 +574,16 @@ class AiAgent {
                 "add_score" -> {
                     val studentId = args.optString("student_id", args.optString("studentId", ""))
                     val name = args.optString("name", "")
-                    val scores = mutableMapOf<String, Double>()
+                    val scores = mutableMapOf<String, JsonElement>()
                     val scoresObj = args.optJSONObject("scores")
                     if (scoresObj != null) {
                         scoresObj.keys().forEach { key ->
-                            scores[key] = scoresObj.getDouble(key)
+                            val raw = scoresObj.get(key)
+                            scores[key] = when (raw) {
+                                is Number -> JsonPrimitive(raw.toDouble())
+                                is Boolean -> JsonPrimitive(raw)
+                                else -> JsonPrimitive(raw.toString())
+                            }
                         }
                     }
                     tool.addScore(studentId, name, scores)

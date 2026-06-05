@@ -827,16 +827,33 @@ void showTopSnackBarWithState({
   required bool isMobile,
   double leftMargin = 16,
   double bottomMargin = 6,
+  double screenWidth = 0,
 }) {
-  final actualLeft = isMobile ? 0.0 : leftMargin;
+  // 计算水平边距
+  double left;
+  double right;
+  if (isMobile) {
+    // 手机（抽屉）：离屏幕边缘各 8px
+    left = 8;
+    right = 8;
+  } else {
+    // 桌面：占用 75% 屏幕宽度，水平居中
+    final margin = screenWidth * 0.125; // 每侧 12.5%
+    left = margin;
+    right = margin;
+    // 最小边距 16px
+    if (left < 16) left = 16;
+    if (right < 16) right = 16;
+  }
+
   messenger.clearSnackBars();
   messenger.showSnackBar(
     SnackBar(
-      content: Text(message),
+      content: Text(message, textAlign: TextAlign.center),
       behavior: SnackBarBehavior.floating,
       margin: EdgeInsets.only(
-        left: actualLeft,
-        right: isMobile ? 0.0 : 16,
+        left: left,
+        right: right,
         bottom: bottomMargin + bottomPadding,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -865,6 +882,7 @@ void showTopSnackBar(
 }) {
   final padding = MediaQuery.of(context).padding;
   final isMobile = MediaQuery.of(context).size.width < 450;
+  final screenWidth = MediaQuery.of(context).size.width;
   showTopSnackBarWithState(
     messenger: ScaffoldMessenger.of(context),
     message: message,
@@ -872,6 +890,7 @@ void showTopSnackBar(
     isMobile: isMobile,
     leftMargin: leftMargin,
     bottomMargin: bottomMargin,
+    screenWidth: screenWidth,
   );
 }
 

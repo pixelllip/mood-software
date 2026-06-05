@@ -5,6 +5,7 @@ import com.aegis.backend.core.ChatHistoryResult
 import com.aegis.backend.core.EnvConfig
 import com.aegis.backend.tools.precise_search.PreciseSearch
 import com.aegis.backend.tools.score_management.StudentScoreService
+import kotlinx.serialization.json.JsonElement
 import com.aegis.backend.tools.task.TaskOrganizer
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
@@ -199,7 +200,7 @@ class AgentTools {
     /**
      * 录入/更新成绩
      */
-    fun addScore(studentId: String, name: String, scores: Map<String, Double>): String {
+    fun addScore(studentId: String, name: String, scores: Map<String, JsonElement>): String {
         return scoreService.addScore(studentId, name, scores)
     }
 

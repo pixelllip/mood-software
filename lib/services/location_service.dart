@@ -92,12 +92,12 @@ class LocationService {
           );
           return ipResult;
         }
-        // IP定位也失败 → 返回未知位置（比硬编码广州更诚实）
-        _lastMethod = 'GPS定位（城市未知）';
+        // IP定位也失败 → 用默认城市（广州）作为兜底
+        _lastMethod = 'GPS定位+默认城市（广州）';
         debugPrint(
-          ">>> GPS已定位(${_gpsCoordsCache!.lat},${_gpsCoordsCache!.lng})，但无法获取城市名",
+          ">>> GPS已定位(${_gpsCoordsCache!.lat},${_gpsCoordsCache!.lng})，IP获取城市名失败，使用默认城市：广州",
         );
-        return _CityInfo(name: '未知位置', adcode: '000000');
+        return _CityInfo(name: '广州', adcode: '440100');
       }
 
       // 3️⃣ GPS完全不可用，直接尝试IP定位
@@ -110,10 +110,10 @@ class LocationService {
       debugPrint(">>> 定位服务出错: $e");
     }
 
-    // 4️⃣ 所有方式均失败
-    _lastMethod = '所有定位方式均失败';
-    debugPrint(">>> 所有定位方式均失败，无法获取位置");
-    return _CityInfo(name: '未知位置', adcode: '000000');
+    // 4️⃣ 所有方式均失败 → 回退到默认城市（广州）
+    _lastMethod = '所有定位方式均失败，使用默认值';
+    debugPrint(">>> 所有定位方式均失败，回退到默认城市：广州(440100)");
+    return _CityInfo(name: '广州', adcode: '440100');
   }
 
   /// GPS坐标缓存（用于反地理编码失败后给下游使用）
@@ -165,6 +165,13 @@ class LocationService {
       );
       if (response.data is Map) {
         final data = response.data as Map;
+        // 检查高德API返回状态
+        final status = data['status']?.toString() ?? '';
+        if (status != '1') {
+          final info = data['info']?.toString() ?? '未知错误';
+          debugPrint(">>> IP定位API返回错误: $info");
+          return null;
+        }
         final adcode = data['adcode']?.toString() ?? '';
         if (adcode.length >= 6) {
           final city = data['city']?.toString() ?? '';
@@ -172,7 +179,11 @@ class LocationService {
           final cityName = city.isNotEmpty ? city : province;
           debugPrint(">>> IP定位获取到: $cityName($adcode)");
           return _CityInfo(name: cityName, adcode: adcode);
+        } else {
+          debugPrint(">>> IP定位返回的adcode无效: $adcode");
         }
+      } else {
+        debugPrint(">>> IP定位返回数据格式异常");
       }
     } catch (e) {
       debugPrint(">>> IP定位失败: $e");
@@ -185,9 +196,16 @@ class LocationService {
     try {
       bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) {
+        debugPrint(">>> GPS服务未开启，尝试请求用户开启...");
         await Geolocator.openLocationSettings();
-        debugPrint(">>> GPS服务未开启，已请求开启");
-        return null;
+        // 等待一小段时间让用户开启GPS，然后重试一次
+        await Future.delayed(const Duration(seconds: 2));
+        serviceEnabled = await Geolocator.isLocationServiceEnabled();
+        if (!serviceEnabled) {
+          debugPrint(">>> GPS服务仍未开启，跳过GPS定位");
+          return null;
+        }
+        debugPrint(">>> GPS服务已开启，继续定位");
       }
 
       LocationPermission permission = await Geolocator.checkPermission();
@@ -200,14 +218,30 @@ class LocationService {
       }
 
       if (permission == LocationPermission.deniedForever) {
-        debugPrint(">>> GPS权限被永久拒绝");
+        debugPrint(">>> GPS权限被永久拒绝，请在系统设置中手动授权");
         return null;
       }
 
-      // 获取位置
+      // 获取位置 - 先尝试高精度（30秒超时）
+      debugPrint(">>> 正在获取GPS位置（高精度，最多等待30秒）...");
+      try {
+        final position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 30),
+          ),
+        );
+        debugPrint(">>> GPS高精度定位成功");
+        return position;
+      } catch (e) {
+        debugPrint(">>> GPS高精度定位超时/失败: $e");
+      }
+
+      // 高精度失败，降级到中精度再试一次
+      debugPrint(">>> 降级到中精度定位...");
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
+          accuracy: LocationAccuracy.medium,
           timeLimit: Duration(seconds: 15),
         ),
       );

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:material_symbols_icons/symbols.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/pages/scores/score_result_page.dart';
@@ -18,6 +19,7 @@ import 'package:ai_agent/services/location_service.dart';
 import 'package:ai_agent/services/study_analysis_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_selector/file_selector.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({
@@ -48,7 +50,7 @@ class _MyHomePageState extends State<MyHomePage> {
   String? _currentChatSummary;
   int _chatTabIndex = 0;
 
-  final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排", "学习分析"];
+  final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排", "每日学情"];
 
   @override
   void initState() {
@@ -142,9 +144,9 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             ListTile(
               leading: Icon(
-                selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined,
+                selectedIndex == 1 ? Icons.assessment : Icons.assessment_outlined,
               ),
-              title: const Text("我的成绩"),
+              title: const Text("成绩管理"),
               selected: selectedIndex == 1,
               onTap: () {
                 onItemTapped(1);
@@ -166,9 +168,10 @@ class _MyHomePageState extends State<MyHomePage> {
             ),
             ListTile(
               leading: Icon(
-                selectedIndex == 3 ? Icons.analytics : Icons.analytics_outlined,
+                selectedIndex == 3 ? Symbols.overview : Symbols.overview_rounded,
+                fill: selectedIndex == 3 ? 1 : 0,
               ),
-              title: const Text("学习分析"),
+              title: const Text("每日学情"),
               selected: selectedIndex == 3,
               onTap: () {
                 onItemTapped(3);
@@ -233,9 +236,9 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         NavigationRailDestination(
           icon: Icon(
-            selectedIndex == 1 ? Icons.analytics : Icons.analytics_outlined,
+            selectedIndex == 1 ? Icons.assessment  : Icons.assessment_outlined,
           ),
-          label: const Text("我的成绩"),
+          label: const Text("成绩管理"),
         ),
         NavigationRailDestination(
           icon: Icon(
@@ -245,9 +248,10 @@ class _MyHomePageState extends State<MyHomePage> {
         ),
         NavigationRailDestination(
           icon: Icon(
-            selectedIndex == 3 ? Icons.analytics : Icons.analytics_outlined,
+            selectedIndex == 3 ? Symbols.overview : Symbols.overview_rounded,
+            fill: selectedIndex == 3 ? 1 : 0,
           ),
-          label: const Text("学习分析"),
+          label: const Text("每日学情"),
         ),
       ],
     );
@@ -573,7 +577,6 @@ class _HomeContentState extends State<HomeContent>
           showTopSnackBar(
             context,
             "无法打开高德地图，请手动访问 ditu.amap.com",
-            leftMargin: 96,
             bottomMargin: 142,
           );
         }
@@ -587,6 +590,7 @@ class _HomeContentState extends State<HomeContent>
     final hfpMessenger = ScaffoldMessenger.of(context);
     final hfpPadding = MediaQuery.of(context).padding.bottom;
     final hfpIsMobile = MediaQuery.of(context).size.width < 450;
+    final hfpScreenWidth = MediaQuery.of(context).size.width;
 
     final results = await openFiles(
       acceptedTypeGroups: [
@@ -694,6 +698,7 @@ class _HomeContentState extends State<HomeContent>
         message: msg,
         bottomPadding: hfpPadding,
         isMobile: hfpIsMobile,
+        screenWidth: hfpScreenWidth,
         bottomMargin: 142,
       );
     }
@@ -705,6 +710,7 @@ class _HomeContentState extends State<HomeContent>
     final ocrMessenger = ScaffoldMessenger.of(context);
     final ocrPadding = MediaQuery.of(context).padding.bottom;
     final ocrIsMobile = MediaQuery.of(context).size.width < 450;
+    final ocrScreenWidth = MediaQuery.of(context).size.width;
 
     setState(() => _isOcrRunning = true);
     try {
@@ -778,6 +784,7 @@ class _HomeContentState extends State<HomeContent>
           message: "✅ $name OCR 完成（$label）",
           bottomPadding: ocrPadding,
           isMobile: ocrIsMobile,
+          screenWidth: ocrScreenWidth,
           bottomMargin: 142,
         );
       }
@@ -794,6 +801,7 @@ class _HomeContentState extends State<HomeContent>
     final msgCenter = ScaffoldMessenger.of(context);
     final padBottom = MediaQuery.of(context).padding.bottom;
     final mobileMode = MediaQuery.of(context).size.width < 450;
+    final screenWidth = MediaQuery.of(context).size.width;
 
     // 选择图片文件
     final result = await openFile(
@@ -817,6 +825,7 @@ class _HomeContentState extends State<HomeContent>
         message: "正在使用本地 OCR 识别: $name ...",
         bottomPadding: padBottom,
         isMobile: mobileMode,
+        screenWidth: screenWidth,
         bottomMargin: 142,
       );
 
@@ -836,6 +845,7 @@ class _HomeContentState extends State<HomeContent>
           message: "OCR 处理失败: $e",
           bottomPadding: padBottom,
           isMobile: mobileMode,
+          screenWidth: screenWidth,
           bottomMargin: 142,
         );
       }
@@ -1748,17 +1758,19 @@ class _ScorePageState extends State<ScorePage>
     with SingleTickerProviderStateMixin {
   final TextEditingController idController = TextEditingController();
   final TextEditingController nameController = TextEditingController();
+  final TextEditingController _batchTagCtrl = TextEditingController();
   final List<Map<String, TextEditingController>> _scoreItems = [];
   late final TabController _tabController;
 
   int _selectedFuncIndex = 0; // ignore: unused_field
-  // 查询复选框状态
+  // 查询复选框状态（查询和删除共用）
   bool _searchById = true;
   bool _searchByName = false;
-  // 删除预览
-  StudentData? _deletePreview;
-  bool _isQueryingDelete = false;
-
+  // 查询结果（直接展示在搜索按钮下方，不弹窗）
+  List<StudentData> _queryResults = [];
+  bool _isQuerying = false;
+  bool _hasQueried = false;
+  String? _queryFilterTag; // 查询结果标签筛选
   @override
   void initState() {
     super.initState();
@@ -1779,6 +1791,7 @@ class _ScorePageState extends State<ScorePage>
       _scoreItems.add({
         "subject": TextEditingController(),
         "score": TextEditingController(),
+        "fullMark": TextEditingController(),
       });
     });
   }
@@ -1787,132 +1800,745 @@ class _ScorePageState extends State<ScorePage>
     setState(() {
       _scoreItems[index]["subject"]!.dispose();
       _scoreItems[index]["score"]!.dispose();
+      _scoreItems[index]["fullMark"]!.dispose();
       _scoreItems.removeAt(index);
     });
   }
 
-  /// 跳转到成绩详情页
-  void _goToScoreResult(String name, String? id, Map<String, dynamic> scores) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            ScoreResultPage(userName: name, studentId: id, scores: scores),
+  /// 构建单个学生结果卡片（供查询和删除共用）
+  Widget _buildResultCard(StudentData student, {bool showDelete = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeColor = Theme.of(context).colorScheme.primary;
+    final scores = student.scores;
+    final scoreEntries = scores.entries.toList();
+    final borderColor = themeColor.withValues(alpha: isDark ? 0.35 : 0.25);
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: borderColor),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 学生信息头
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 20,
+                  backgroundColor: themeColor,
+                  child: Text(
+                    student.name.isNotEmpty ? student.name[0] : '?',
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        student.name,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black87,
+                        ),
+                      ),
+                      Text(
+                        "学号: ${student.studentId}",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isDark
+                              ? Colors.grey.shade400
+                              : Colors.grey.shade700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                // 查看详情（showDelete 时也在删除页显示详情入口）
+                InkWell(
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ScoreResultPage(
+                          userName: student.name,
+                          studentId: student.studentId,
+                          scores: student.scores,
+                          examRecords: student.examRecords,
+                        ),
+                      ),
+                    );
+                  },
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "详情",
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: themeColor,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Icon(Icons.chevron_right, size: 18, color: themeColor),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            // 标签筛选行
+            Builder(
+              builder: (ctx) {
+                // 从 examRecords 收集所有标签
+                final allTags = student.examRecords
+                    .map((r) => r.label)
+                    .where((l) => l != null && l.isNotEmpty)
+                    .toSet()
+                    .toList();
+                if (allTags.isEmpty) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      ChoiceChip(
+                        label: const Text("所有", style: TextStyle(fontSize: 12)),
+                        selected: _queryFilterTag == null,
+                        onSelected: (_) =>
+                            setState(() => _queryFilterTag = null),
+                      ),
+                      ...allTags.map((tag) {
+                        final isSelected = _queryFilterTag == tag;
+                        return ChoiceChip(
+                          label: Text(
+                            tag!,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          selected: isSelected,
+                          onSelected: (_) => setState(
+                            () => _queryFilterTag = isSelected ? null : tag,
+                          ),
+                        );
+                      }),
+                    ],
+                  ),
+                );
+              },
+            ),
+            // 科目成绩摘要
+            Text(
+              _queryFilterTag != null
+                  ? "科目成绩（标签: $_queryFilterTag）"
+                  : "科目成绩（共 ${scores.length} 门）",
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.grey.shade300 : Colors.grey.shade800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (scoreEntries.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  "暂无科目成绩",
+                  style: TextStyle(
+                    color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              )
+            else
+              ..._buildFilteredScoreEntries(
+                scoreEntries,
+                student,
+                isDark,
+                themeColor,
+                showDelete,
+              ),
+            if (scoreEntries.length > 5)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  "... 还有 ${scoreEntries.length - 5} 门科目",
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey.shade500,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
+            if (showDelete) ...[
+              // 检测缺少标签的科目
+              Builder(
+                builder: (ctx) {
+                  final untagged = scoreEntries.where((e) {
+                    final v = e.value;
+                    return v is! Map ||
+                        v['tag'] == null ||
+                        v['tag'].toString().isEmpty;
+                  }).toList();
+                  if (untagged.isEmpty) return const SizedBox.shrink();
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 4),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: Colors.orange.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.label_outline,
+                            size: 16,
+                            color: Colors.orange.shade400,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              "${untagged.length} 个科目缺少标签，将使用默认标签",
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Colors.orange.shade700,
+                              ),
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: () => _autoTagAll(
+                              student,
+                              untagged.map((e) => e.key).toList(),
+                            ),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              "一键补全",
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              const Divider(height: 1),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 38,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.delete_forever, size: 18),
+                  onPressed: () => _deleteStudentData(student),
+                  label: const Text(
+                    '删除此学生的所有信息',
+                    style: TextStyle(fontSize: 13),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.red.shade400,
+                    side: BorderSide(color: Colors.red.shade300),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
 
-  /// 展示学生列表让用户选择（居中弹窗，带卡片样式）
-  Future<void> _showStudentPicker(List<StudentData> students) async {
-    if (!mounted) return;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final themeColor = Theme.of(context).colorScheme.primary;
+  /// 构建按标签筛选的成绩项列表
+  List<Widget> _buildFilteredScoreEntries(
+    List<MapEntry<String, dynamic>> scoreEntries,
+    StudentData student,
+    bool isDark,
+    Color themeColor,
+    bool showDelete,
+  ) {
+    final entriesToShow = <MapEntry<String, dynamic>>[];
 
-    final selected = await showDialog<StudentData>(
-      context: context,
-      barrierDismissible: true,
-      builder: (ctx) => AlertDialog(
-        title: const Text("选择学生"),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: students.length,
-            itemBuilder: (context, index) {
-              final s = students[index];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => Navigator.pop(ctx, s),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: isDark
-                            ? themeColor.withAlpha(25)
-                            : themeColor.withAlpha(10),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isDark
-                              ? themeColor.withAlpha(60)
-                              : themeColor.withAlpha(30),
+    if (_queryFilterTag != null) {
+      final taggedRecords =
+          student.examRecords.where((r) => r.label == _queryFilterTag).toList()
+            ..sort((a, b) => b.date.compareTo(a.date));
+      if (taggedRecords.isNotEmpty) {
+        final latest = taggedRecords.first;
+        for (final subject in scoreEntries.map((e) => e.key)) {
+          if (latest.scores.containsKey(subject)) {
+            entriesToShow.add(MapEntry(subject, latest.scores[subject]!));
+          }
+        }
+      }
+      if (entriesToShow.isEmpty) entriesToShow.addAll(scoreEntries);
+    } else {
+      entriesToShow.addAll(scoreEntries);
+    }
+
+    if (entriesToShow.isEmpty) {
+      return [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            "该标签下暂无成绩",
+            style: TextStyle(
+              color: isDark ? Colors.grey.shade500 : Colors.grey.shade500,
+              fontStyle: FontStyle.italic,
+            ),
+          ),
+        ),
+      ];
+    }
+
+    return entriesToShow.take(5).map((entry) {
+      final subject = entry.key;
+      final score = entry.value;
+      String displayScore;
+      if (score is Map) {
+        final s = score['score'] ?? 0;
+        final fm = score['fullMark'];
+        displayScore = fm != null ? "$s/$fm" : "$s";
+      } else {
+        displayScore = "$score";
+      }
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          children: [
+            Icon(Icons.auto_stories, size: 16, color: themeColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(subject, style: const TextStyle(fontSize: 14)),
+                  if (score is Map &&
+                      score['tag'] != null &&
+                      score['tag'].toString().isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: themeColor.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                            color: themeColor.withValues(alpha: 0.3),
+                          ),
+                        ),
+                        child: Text(
+                          score['tag'].toString(),
+                          style: TextStyle(fontSize: 10, color: themeColor),
                         ),
                       ),
-                      padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            backgroundColor: themeColor,
-                            child: Text(
-                              s.name.isNotEmpty ? s.name[0] : '?',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  s.name,
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: isDark
-                                        ? Colors.white
-                                        : Colors.black87,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  "学号: ${s.studentId}",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: isDark
-                                        ? Colors.grey.shade400
-                                        : Colors.grey.shade600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  "${s.scores.length} 门课程",
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: themeColor,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right, color: Colors.grey),
-                        ],
-                      ),
                     ),
+                ],
+              ),
+            ),
+            if (showDelete) ...[
+              if (score is! Map ||
+                  score['tag'] == null ||
+                  score['tag'].toString().isEmpty)
+                IconButton(
+                  icon: Icon(
+                    Icons.label_outline,
+                    size: 16,
+                    color: Colors.orange.shade400,
                   ),
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                  tooltip: "为「$subject」添加标签",
+                  onPressed: () => _showAddTagDialog(student, subject),
                 ),
-              );
-            },
+              IconButton(
+                icon: Icon(
+                  Icons.edit_outlined,
+                  size: 16,
+                  color: Colors.blue.shade300,
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                tooltip: "修改「$subject」成绩",
+                onPressed: () => _showEditScoreDialog(student, subject),
+              ),
+              IconButton(
+                icon: Icon(
+                  Icons.remove_circle_outline,
+                  size: 16,
+                  color: Colors.red.shade400,
+                ),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+                tooltip: "删除「$subject」成绩",
+                onPressed: () => _deleteSubjectScoreFrom(subject, student),
+              ),
+            ] else ...[
+              const Spacer(),
+            ],
+            Text(
+              displayScore,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: themeColor,
+              ),
+            ),
+          ],
+        ),
+      );
+    }).toList();
+  }
+
+  /// 弹出添加标签对话框
+  Future<void> _showAddTagDialog(StudentData student, String subject) async {
+    final tagCtrl = TextEditingController();
+    // 从 ExamRecord 中提取已有标签供快速选择
+    final existingTags = student.examRecords
+        .map((r) => r.label)
+        .where((l) => l != null && l.isNotEmpty)
+        .toSet()
+        .toList();
+
+    String? selectedTag;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text("为「$subject」添加标签"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: tagCtrl,
+                decoration: const InputDecoration(
+                  labelText: '自定义标签',
+                  hintText: '例如：期中考试、月考、模拟考',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              if (existingTags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  "已有标签：",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: existingTags.map((tag) {
+                    final isSelected = selectedTag == tag;
+                    return ChoiceChip(
+                      label: Text(tag!, style: const TextStyle(fontSize: 12)),
+                      selected: isSelected,
+                      onSelected: (_) {
+                        setDialogState(() {
+                          selectedTag = tag;
+                          tagCtrl.text = tag;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消"),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx, true);
+              },
+              child: const Text("确认"),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (result == true && mounted) {
+      final tag = tagCtrl.text.trim();
+      await _updateScoreTag(student, subject, tag.isNotEmpty ? tag : '日常');
+    }
+    tagCtrl.dispose();
+  }
+
+  /// 一键补全所有缺少标签的科目（弹出对话框让用户输入标签名）
+  Future<void> _autoTagAll(StudentData student, List<String> subjects) async {
+    final tagCtrl = TextEditingController();
+    // 从已有记录提取标签供选择
+    final existingTags = student.examRecords
+        .map((r) => r.label)
+        .where((l) => l != null && l.isNotEmpty)
+        .toSet()
+        .toList();
+
+    String? selectedTag;
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: Text("为 ${subjects.length} 个科目补全标签"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: tagCtrl,
+                decoration: const InputDecoration(
+                  labelText: '标签名称',
+                  hintText: '例如：期中考试、月考、模拟考',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              if (existingTags.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Text(
+                  "或选择已有标签：",
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 6),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: existingTags.map((tag) {
+                    final isSel = selectedTag == tag;
+                    return ChoiceChip(
+                      label: Text(tag!, style: const TextStyle(fontSize: 12)),
+                      selected: isSel,
+                      onSelected: (_) {
+                        setDialogState(() {
+                          selectedTag = tag;
+                          tagCtrl.text = tag;
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text("取消"),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text("确认补全"),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    tagCtrl.dispose();
+
+    if (result != true || !mounted) return;
+
+    final tag = tagCtrl.text.trim();
+    final effectiveTag = tag.isNotEmpty ? tag : '日常';
+    for (final subject in subjects) {
+      await _updateScoreTag(student, subject, effectiveTag);
+    }
+    if (mounted) {
+      showTopSnackBar(
+        context,
+        "已为 ${subjects.length} 个科目补全标签「$effectiveTag」",
+        bottomMargin: 82,
+      );
+      queryData();
+    }
+  }
+
+  /// 更新单科成绩的标签
+  Future<void> _updateScoreTag(
+    StudentData student,
+    String subject,
+    String tag,
+  ) async {
+    try {
+      if (Platform.isAndroid) {
+        await LocalScoreService.updateSubjectTag(
+          studentId: student.studentId,
+          subject: subject,
+          tag: tag,
+        );
+        if (mounted) {
+          showTopSnackBar(context, "已更新「$subject」标签：$tag", bottomMargin: 82);
+          queryData();
+        }
+      } else {
+        await widget.dio.post(
+          "/update/tag",
+          data: {"id": student.studentId, "subject": subject, "tag": tag},
+        );
+        if (mounted) {
+          showTopSnackBar(context, "已更新「$subject」标签：$tag", bottomMargin: 82);
+          queryData();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        showTopSnackBar(context, "更新标签失败: $e", bottomMargin: 82);
+      }
+    }
+  }
+
+  /// 弹出修改成绩对话框
+  Future<void> _showEditScoreDialog(StudentData student, String subject) async {
+    final scoreCtrl = TextEditingController();
+    final fullMarkCtrl = TextEditingController();
+    final tagCtrl = TextEditingController();
+    final existingScore = student.scores[subject];
+    if (existingScore is Map) {
+      scoreCtrl.text = (existingScore['score'] ?? '').toString();
+      fullMarkCtrl.text = (existingScore['fullMark'] ?? '').toString();
+      tagCtrl.text = (existingScore['tag'] ?? '').toString();
+    } else {
+      scoreCtrl.text = existingScore?.toString() ?? '';
+    }
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text("修改「$subject」成绩"),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: scoreCtrl,
+                decoration: const InputDecoration(
+                  labelText: '分数',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: fullMarkCtrl,
+                decoration: const InputDecoration(
+                  labelText: '满分（留空默认100）',
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: tagCtrl,
+                decoration: const InputDecoration(
+                  labelText: '标签',
+                  hintText: '例如：期中考试、月考',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
           ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
+            onPressed: () => Navigator.pop(ctx, false),
             child: const Text("取消"),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text("保存"),
           ),
         ],
       ),
     );
-    if (selected != null && mounted) {
-      _goToScoreResult(selected.name, selected.studentId, selected.scores);
+
+    if (result == true && mounted) {
+      final newScore = scoreCtrl.text.trim();
+      final newFullMark = fullMarkCtrl.text.trim();
+      final newTag = tagCtrl.text.trim();
+      if (newScore.isEmpty) return;
+
+      Map<String, dynamic> scoreValue;
+      if (newFullMark.isNotEmpty) {
+        scoreValue = {
+          'score': num.tryParse(newScore) ?? 0,
+          'fullMark': num.tryParse(newFullMark) ?? 100,
+        };
+      } else {
+        scoreValue = {'score': num.tryParse(newScore) ?? 0};
+      }
+      if (newTag.isNotEmpty) {
+        scoreValue['tag'] = newTag;
+      }
+
+      try {
+        if (Platform.isAndroid) {
+          await LocalScoreService.addScore(
+            studentId: student.studentId,
+            name: student.name,
+            scores: {subject: scoreValue},
+          );
+        } else {
+          await widget.dio.post(
+            "/add",
+            data: {
+              "id": student.studentId,
+              "name": student.name,
+              "scores": [
+                {subject: scoreValue},
+              ],
+              if (newTag.isNotEmpty) "label": newTag,
+            },
+          );
+        }
+        if (mounted) {
+          showTopSnackBar(context, "已更新「$subject」成绩", bottomMargin: 82);
+          queryData();
+        }
+      } catch (e) {
+        if (mounted) {
+          showTopSnackBar(context, "更新失败: $e", bottomMargin: 82);
+        }
+      }
     }
+    scoreCtrl.dispose();
+    fullMarkCtrl.dispose();
+    tagCtrl.dispose();
   }
 
   Future<void> queryData() async {
+    setState(() {
+      _isQuerying = true;
+      _hasQueried = true;
+      _queryResults = [];
+    });
     try {
       // 检查：两项都未勾选
       if (!_searchById && !_searchByName) {
@@ -1944,38 +2570,22 @@ class _ScorePageState extends State<ScorePage>
               .toList();
           if (filtered.isEmpty) {
             throw "未找到学号「$rawId」且姓名包含「$rawName」的学生";
-          } else if (filtered.length == 1) {
-            final s = filtered[0];
-            _goToScoreResult(s.name, s.studentId, s.scores);
-          } else {
-            await _showStudentPicker(filtered);
           }
+          setState(() => _queryResults = filtered);
         } else if (_searchById) {
           final matches = await LocalScoreService.queryStudentsById(rawId);
           if (!mounted) return;
           if (matches.isEmpty) {
             throw "未找到学号为「$rawId」的学生";
-          } else if (matches.length == 1) {
-            final s = matches[0];
-            _goToScoreResult(s.name, s.studentId, s.scores);
-          } else {
-            // 同学号多条 → 弹出选择
-            await _showStudentPicker(matches);
           }
+          setState(() => _queryResults = matches);
         } else {
           final matches = await LocalScoreService.queryStudentsByName(rawName);
           if (!mounted) return;
           if (matches.isEmpty) {
             throw "未找到姓名包含「$rawName」的学生";
-          } else if (matches.length == 1) {
-            _goToScoreResult(
-              matches[0].name,
-              matches[0].studentId,
-              matches[0].scores,
-            );
-          } else {
-            await _showStudentPicker(matches);
           }
+          setState(() => _queryResults = matches);
         }
       } else {
         // 💻 PC：后端查询（仅传已勾选的参数）
@@ -1988,30 +2598,26 @@ class _ScorePageState extends State<ScorePage>
         );
         if (!mounted) return;
         if (response.data is Map && response.data['error'] == null) {
+          List<StudentData> students;
           if (response.data['students'] is List) {
-            // 多条结果
             final list = response.data['students'] as List;
-            if (list.isNotEmpty) {
-              final students = list
-                  .map((e) => StudentData.fromJson(e as Map<String, dynamic>))
-                  .toList();
-              if (students.length == 1) {
-                final s = students[0];
-                _goToScoreResult(s.name, s.studentId, s.scores);
-              } else {
-                await _showStudentPicker(students);
-              }
-            } else {
-              throw '未找到该学生';
-            }
+            if (list.isEmpty) throw '未找到该学生';
+            students = list
+                .map((e) => StudentData.fromJson(e as Map<String, dynamic>))
+                .toList();
           } else {
             // 单条结果（兼容旧格式）
-            _goToScoreResult(
-              response.data['name']?.toString() ?? '未知',
-              hasId ? rawId : null,
-              Map<String, dynamic>.from(response.data['scores'] ?? {}),
-            );
+            students = [
+              StudentData(
+                studentId: hasId ? rawId : '',
+                name: response.data['name']?.toString() ?? '未知',
+                scores: Map<String, dynamic>.from(
+                  response.data['scores'] ?? {},
+                ),
+              ),
+            ];
           }
+          setState(() => _queryResults = students);
         } else {
           throw response.data['error']?.toString() ?? '未找到该学生';
         }
@@ -2028,21 +2634,54 @@ class _ScorePageState extends State<ScorePage>
         errorMsg = e.toString();
       }
       if (mounted) {
-        showTopSnackBar(context, errorMsg, leftMargin: 96, bottomMargin: 82);
+        showTopSnackBar(context, errorMsg, bottomMargin: 82);
       }
+    } finally {
+      if (mounted) {
+        setState(() => _isQuerying = false);
+        _defaultQueryFilterTag();
+      }
+    }
+  }
+
+  /// 将查询结果标签筛选默认设为最新标签
+  void _defaultQueryFilterTag() {
+    if (_queryResults.isEmpty) return;
+    final first = _queryResults.first;
+    final records = first.examRecords.toList()
+      ..sort((a, b) => b.date.compareTo(a.date));
+    final latestTag = records
+        .map((r) => r.label)
+        .firstWhere((l) => l != null && l.isNotEmpty, orElse: () => null);
+    if (latestTag != null && _queryFilterTag != latestTag) {
+      setState(() => _queryFilterTag = latestTag);
     }
   }
 
   Future<void> _submitAddData() async {
     try {
       final List<Map<String, dynamic>> scoreList = [];
+      final batchTag = _batchTagCtrl.text.trim();
       for (var item in _scoreItems) {
         final subject = item["subject"]!.text.trim();
         final scoreRaw = item["score"]!.text.trim();
+        final fullMarkRaw = item["fullMark"]!.text.trim();
         if (subject.isNotEmpty && scoreRaw.isNotEmpty) {
-          // 将分数转为数值，避免 Kotlin 后端反序列化 String→Double 失败
+          // 将分数转为数值
           final scoreNum = num.tryParse(scoreRaw) ?? scoreRaw;
-          scoreList.add({subject: scoreNum});
+          final hasFullMark = fullMarkRaw.isNotEmpty;
+          final fullMarkNum = hasFullMark ? num.tryParse(fullMarkRaw) : null;
+          // 构建分数值（含可选的批次标签）
+          Map<String, dynamic> scoreValue;
+          if (hasFullMark && fullMarkNum != null) {
+            scoreValue = {'score': scoreNum, 'fullMark': fullMarkNum};
+          } else {
+            scoreValue = {'score': scoreNum};
+          }
+          if (batchTag.isNotEmpty) {
+            scoreValue['tag'] = batchTag;
+          }
+          scoreList.add({subject: scoreValue});
         }
       }
 
@@ -2060,20 +2699,34 @@ class _ScorePageState extends State<ScorePage>
       }
 
       if (Platform.isAndroid) {
-        // 📱 Android：本地文件添加
+        // 📱 Android：本地文件添加（支持自定义满分）
         await LocalScoreService.addScore(
           studentId: idController.text,
           name: nameController.text,
           scores: scoresMap,
         );
       } else {
-        // 💻 PC：后端添加（分数值已转为 num，Kotlin 端可正确反序列化为 Double）
+        // 💻 PC：后端添加（支持标签和对象格式）
+        final pcScoreList = <Map<String, dynamic>>[];
+        for (final entry in scoresMap.entries) {
+          final v = entry.value;
+          if (v is Map) {
+            // 保留完整格式（score, fullMark, tag）
+            pcScoreList.add({entry.key: v});
+          } else if (v is num) {
+            pcScoreList.add({entry.key: v.toDouble()});
+          } else {
+            final parsed = double.tryParse(v.toString());
+            pcScoreList.add({entry.key: parsed ?? 0.0});
+          }
+        }
         final response = await widget.dio.post(
           "/add",
           data: {
             "id": idController.text,
             "name": nameController.text,
-            "scores": scoreList,
+            "scores": pcScoreList,
+            if (batchTag.isNotEmpty) "label": batchTag,
           },
         );
         // 检查服务端返回是否有错误
@@ -2084,14 +2737,16 @@ class _ScorePageState extends State<ScorePage>
       }
 
       if (!mounted) return;
-      showTopSnackBar(context, "信息已成功添加到系统", leftMargin: 96, bottomMargin: 82);
+      showTopSnackBar(context, "信息已成功添加到系统", bottomMargin: 82);
 
       idController.clear();
       nameController.clear();
+      _batchTagCtrl.clear();
       setState(() {
         for (var item in _scoreItems) {
           item["subject"]!.dispose();
           item["score"]!.dispose();
+          item["fullMark"]!.dispose();
         }
         _scoreItems.clear();
       });
@@ -2111,198 +2766,7 @@ class _ScorePageState extends State<ScorePage>
       } else {
         errorMsg = e.toString();
       }
-      showTopSnackBar(
-        context,
-        "提交失败: $errorMsg",
-        leftMargin: 96,
-        bottomMargin: 82,
-      );
-    }
-  }
-
-  /// 查询待删除学生预览
-  Future<void> _previewDelete() async {
-    final rawId = idController.text.trim();
-    final rawName = nameController.text.trim();
-    if (rawId.isEmpty && rawName.isEmpty) {
-      showTopSnackBar(context, "请输入学生ID或姓名", leftMargin: 96, bottomMargin: 82);
-      return;
-    }
-
-    setState(() {
-      _isQueryingDelete = true;
-      _deletePreview = null;
-    });
-
-    try {
-      if (Platform.isAndroid) {
-        StudentData? student;
-        if (rawId.isNotEmpty) {
-          student = await LocalScoreService.queryStudent(id: rawId);
-        } else {
-          final matches = await LocalScoreService.queryStudentsByName(rawName);
-          student = matches.isNotEmpty ? matches[0] : null;
-        }
-        if (!mounted) return;
-        if (student != null) {
-          setState(() => _deletePreview = student);
-        } else {
-          throw "未找到该学生";
-        }
-      } else {
-        // PC 端
-        final params = <String, dynamic>{};
-        if (rawId.isNotEmpty) params['id'] = rawId;
-        if (rawName.isNotEmpty) params['name'] = rawName;
-        final res = await widget.dio.get('/query', queryParameters: params);
-        if (!mounted) return;
-        if (res.data is Map && res.data['error'] == null) {
-          setState(() {
-            _deletePreview = StudentData(
-              studentId: rawId,
-              name: res.data['name']?.toString() ?? '',
-              scores: Map<String, dynamic>.from(res.data['scores'] ?? {}),
-            );
-          });
-        } else {
-          throw "未找到该学生";
-        }
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _deletePreview = null);
-      showTopSnackBar(context, "查询失败: $e", leftMargin: 96, bottomMargin: 82);
-    } finally {
-      if (mounted) setState(() => _isQueryingDelete = false);
-    }
-  }
-
-  Future<void> _deleteData() async {
-    if (_deletePreview == null) {
-      showTopSnackBar(context, "请先查询学生信息", leftMargin: 96, bottomMargin: 82);
-      return;
-    }
-
-    final bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("确认删除"),
-        content: Text(
-          "确定要删除「${_deletePreview!.name}」(学号: ${_deletePreview!.studentId}) 的所有信息吗？\n此操作不可撤销。",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("取消"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text("删除"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      if (Platform.isAndroid) {
-        await LocalScoreService.deleteStudent(
-          id: _deletePreview!.studentId.isNotEmpty
-              ? _deletePreview!.studentId
-              : null,
-          name: _deletePreview!.name.isNotEmpty ? _deletePreview!.name : null,
-        );
-      } else {
-        await widget.dio.delete(
-          "/delete",
-          queryParameters: {
-            "id": _deletePreview!.studentId,
-            "name": _deletePreview!.name,
-          },
-        );
-      }
-
-      if (!mounted) return;
-      showTopSnackBar(
-        context,
-        "已删除「${_deletePreview!.name}」的所有信息",
-        leftMargin: 96,
-        bottomMargin: 82,
-      );
-
-      setState(() {
-        _deletePreview = null;
-      });
-      idController.clear();
-      nameController.clear();
-    } catch (e) {
-      if (!mounted) return;
-      showTopSnackBar(context, "删除失败: $e", leftMargin: 96, bottomMargin: 82);
-    }
-  }
-
-  /// 删除单科成绩
-  Future<void> _deleteSubjectScore(String subject) async {
-    if (_deletePreview == null) return;
-
-    final bool? confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("确认删除"),
-        content: Text("确定要删除「${_deletePreview!.name}」的「$subject」成绩吗？"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text("取消"),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
-            child: const Text("删除"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    try {
-      if (Platform.isAndroid) {
-        await LocalScoreService.deleteSubjectScore(
-          studentId: _deletePreview!.studentId,
-          subject: subject,
-        );
-      } else {
-        await widget.dio.delete(
-          "/delete/subject",
-          queryParameters: {
-            "id": _deletePreview!.studentId,
-            "subject": subject,
-          },
-        );
-      }
-
-      if (!mounted) return;
-
-      // 刷新预览 — 从本地重新查询
-      setState(() {
-        _deletePreview = null;
-      });
-      // 重新查询以刷新数据
-      await _previewDelete();
-
-      if (!mounted) return;
-      showTopSnackBar(
-        context,
-        "已删除「${_deletePreview?.name ?? ''}」的「$subject」成绩",
-        leftMargin: 96,
-        bottomMargin: 82,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      showTopSnackBar(context, "删除失败: $e", leftMargin: 96, bottomMargin: 82);
+      showTopSnackBar(context, "提交失败: $errorMsg", bottomMargin: 82);
     }
   }
 
@@ -2311,14 +2775,16 @@ class _ScorePageState extends State<ScorePage>
     _tabController.dispose();
     idController.dispose();
     nameController.dispose();
+    _batchTagCtrl.dispose();
     for (var item in _scoreItems) {
       item["subject"]!.dispose();
       item["score"]!.dispose();
+      item["fullMark"]!.dispose();
     }
     super.dispose();
   }
 
-  Widget _buildSearchUI() {
+  Widget _buildQueryUI() {
     return LayoutBuilder(
       builder: (context, constraints) {
         final bool isWide = constraints.maxWidth > 1000;
@@ -2440,8 +2906,17 @@ class _ScorePageState extends State<ScorePage>
                 width: double.infinity,
                 height: 50,
                 child: ElevatedButton.icon(
-                  icon: const Icon(Icons.search),
-                  onPressed: queryData,
+                  icon: _isQuerying
+                      ? const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.search),
+                  onPressed: _isQuerying ? null : queryData,
                   label: const Text('查询成绩'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: Theme.of(context).primaryColor,
@@ -2455,6 +2930,56 @@ class _ScorePageState extends State<ScorePage>
                   ),
                 ),
               ),
+              // 查询结果卡片区域（直接展示在按钮下方）
+              if (_hasQueried) ...[
+                const SizedBox(height: 16),
+                if (_queryResults.isEmpty && !_isQuerying)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.search_off,
+                            size: 48,
+                            color: Colors.grey.shade400,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            "未找到匹配的学生",
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: Colors.grey.shade500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else ...[
+                  Row(
+                    children: [
+                      Text(
+                        "查询结果（${_queryResults.length} 条）",
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        icon: const Icon(Icons.refresh, size: 18),
+                        label: const Text("重新查询"),
+                        onPressed: queryData,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ..._queryResults.map(
+                    (student) => _buildResultCard(student, showDelete: true),
+                  ),
+                ],
+              ],
             ],
           ),
         );
@@ -2526,6 +3051,17 @@ class _ScorePageState extends State<ScorePage>
                     ),
                   ),
                 ],
+                const SizedBox(height: 16),
+                // 批次标签
+                TextField(
+                  controller: _batchTagCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '批次标签（可选）',
+                    hintText: '例如：期中考试、月考、模拟考',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.label_outline),
+                  ),
+                ),
                 const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -2575,13 +3111,28 @@ class _ScorePageState extends State<ScorePage>
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 4),
                           Expanded(
                             flex: 2,
                             child: TextField(
                               controller: _scoreItems[index]["score"],
                               decoration: const InputDecoration(
                                 hintText: '分数',
+                                border: OutlineInputBorder(),
+                                contentPadding: EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                              ),
+                              keyboardType: TextInputType.number,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: _scoreItems[index]["fullMark"],
+                              decoration: const InputDecoration(
+                                hintText: '满分',
                                 border: OutlineInputBorder(),
                                 contentPadding: EdgeInsets.symmetric(
                                   horizontal: 10,
@@ -2665,13 +3216,26 @@ class _ScorePageState extends State<ScorePage>
             ),
           ),
         ),
-        const SizedBox(width: 6),
+        const SizedBox(width: 4),
         Expanded(
           flex: 2,
           child: TextField(
             controller: _scoreItems[index]["score"],
             decoration: const InputDecoration(
               hintText: '分数',
+              border: OutlineInputBorder(),
+              contentPadding: EdgeInsets.symmetric(horizontal: 10),
+            ),
+            keyboardType: TextInputType.number,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Expanded(
+          flex: 2,
+          child: TextField(
+            controller: _scoreItems[index]["fullMark"],
+            decoration: const InputDecoration(
+              hintText: '满分',
               border: OutlineInputBorder(),
               contentPadding: EdgeInsets.symmetric(horizontal: 10),
             ),
@@ -2686,300 +3250,113 @@ class _ScorePageState extends State<ScorePage>
     );
   }
 
-  Widget _buildDeleteUI() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final themeColor = Theme.of(context).colorScheme.primary;
-    final borderColor = themeColor.withValues(alpha: isDark ? 0.35 : 0.25);
-    final scores = _deletePreview?.scores ?? {};
-    final scoreEntries = scores.entries.toList();
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final bool isWide = constraints.maxWidth > 1000;
-        return SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const Text(
-                "请提供学生ID或姓名，先查询再删除：",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 24),
-              if (isWide)
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: idController,
-                        decoration: const InputDecoration(
-                          labelText: '学生ID',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.badge_outlined),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: TextField(
-                        controller: nameController,
-                        decoration: const InputDecoration(
-                          labelText: '学生姓名',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.person_outline),
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                TextField(
-                  controller: idController,
-                  decoration: const InputDecoration(
-                    labelText: '学生ID',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '学生姓名',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              // 先查询按钮
-              SizedBox(
-                width: double.infinity,
-                height: 44,
-                child: OutlinedButton.icon(
-                  icon: _isQueryingDelete
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.search),
-                  onPressed: _isQueryingDelete ? null : _previewDelete,
-                  label: const Text('查询学生信息'),
-                ),
-              ),
-              // 查询结果预览
-              if (_deletePreview != null) ...[
-                const SizedBox(height: 16),
-                Card(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    side: BorderSide(color: borderColor),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // 学生信息头
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 20,
-                              backgroundColor: themeColor,
-                              child: Text(
-                                _deletePreview!.name.isNotEmpty
-                                    ? _deletePreview!.name[0]
-                                    : '?',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 18,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _deletePreview!.name,
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: isDark
-                                          ? Colors.white
-                                          : Colors.black87,
-                                    ),
-                                  ),
-                                  Text(
-                                    "学号: ${_deletePreview!.studentId}",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: isDark
-                                          ? Colors.grey.shade400
-                                          : Colors.grey.shade700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            // 查看详情入口
-                            InkWell(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => ScoreResultPage(
-                                      userName: _deletePreview!.name,
-                                      studentId: _deletePreview!.studentId,
-                                      scores: _deletePreview!.scores,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                    "详情",
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: themeColor,
-                                      decoration: TextDecoration.underline,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 2),
-                                  Icon(
-                                    Icons.chevron_right,
-                                    size: 18,
-                                    color: themeColor,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        // 标题行：科目列表
-                        Text(
-                          "科目成绩（共 ${scores.length} 门）",
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: isDark
-                                ? Colors.grey.shade300
-                                : Colors.grey.shade800,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        // 各科成绩列表（含删除按钮）
-                        if (scoreEntries.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            child: Text(
-                              "暂无科目成绩",
-                              style: TextStyle(
-                                color: isDark
-                                    ? Colors.grey.shade500
-                                    : Colors.grey.shade500,
-                                fontStyle: FontStyle.italic,
-                              ),
-                            ),
-                          )
-                        else
-                          ...scoreEntries.map((entry) {
-                            final subject = entry.key;
-                            final score = entry.value;
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 6),
-                              decoration: BoxDecoration(
-                                color: isDark
-                                    ? Colors.grey.shade800
-                                    : Colors.white,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: isDark
-                                      ? Colors.grey.shade700
-                                      : Colors.grey.shade300,
-                                ),
-                              ),
-                              child: ListTile(
-                                dense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 0,
-                                ),
-                                leading: Icon(
-                                  Icons.auto_stories,
-                                  color: themeColor,
-                                  size: 20,
-                                ),
-                                title: Text(
-                                  subject,
-                                  style: const TextStyle(fontSize: 14),
-                                ),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      "$score",
-                                      style: TextStyle(
-                                        fontSize: 15,
-                                        fontWeight: FontWeight.bold,
-                                        color: themeColor,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    SizedBox(
-                                      width: 32,
-                                      height: 32,
-                                      child: IconButton(
-                                        icon: Icon(
-                                          Icons.remove_circle_outline,
-                                          color: Colors.red.shade400,
-                                          size: 20,
-                                        ),
-                                        padding: EdgeInsets.zero,
-                                        tooltip: "删除「$subject」成绩",
-                                        onPressed: () =>
-                                            _deleteSubjectScore(subject),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                        const SizedBox(height: 16),
-                        // 删除整个学生
-                        SizedBox(
-                          width: double.infinity,
-                          height: 44,
-                          child: OutlinedButton.icon(
-                            icon: const Icon(Icons.delete_forever, size: 20),
-                            onPressed: _deleteData,
-                            label: const Text(
-                              '删除此学生的所有信息',
-                              style: TextStyle(fontSize: 14),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.red.shade400,
-                              side: BorderSide(color: Colors.red.shade300),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
+  /// 删除指定学生的单科成绩（支持多条结果中的任意卡片）
+  Future<void> _deleteSubjectScoreFrom(
+    String subject,
+    StudentData student,
+  ) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("确认删除"),
+        content: Text("确定要删除「${student.name}」的「$subject」成绩吗？"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("取消"),
           ),
-        );
-      },
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("删除"),
+          ),
+        ],
+      ),
     );
+
+    if (confirm != true) return;
+
+    try {
+      if (Platform.isAndroid) {
+        await LocalScoreService.deleteSubjectScore(
+          studentId: student.studentId,
+          subject: subject,
+        );
+      } else {
+        await widget.dio.delete(
+          "/delete/subject",
+          queryParameters: {"id": student.studentId, "subject": subject},
+        );
+      }
+
+      if (!mounted) return;
+
+      // 刷新查询结果
+      await queryData();
+
+      if (!mounted) return;
+      showTopSnackBar(
+        context,
+        "已删除「${student.name}」的「$subject」成绩",
+        bottomMargin: 82,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      showTopSnackBar(context, "删除失败: $e", bottomMargin: 82);
+    }
+  }
+
+  /// 删除指定学生的所有信息（支持多条结果中的任意卡片）
+  Future<void> _deleteStudentData(StudentData student) async {
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("确认删除"),
+        content: Text(
+          "确定要删除「${student.name}」(学号: ${student.studentId}) 的所有信息吗？\n此操作不可撤销。",
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("取消"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text("删除"),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    try {
+      if (Platform.isAndroid) {
+        await LocalScoreService.deleteStudent(
+          id: student.studentId.isNotEmpty ? student.studentId : null,
+          name: student.name.isNotEmpty ? student.name : null,
+        );
+      } else {
+        await widget.dio.delete(
+          "/delete",
+          queryParameters: {"id": student.studentId, "name": student.name},
+        );
+      }
+
+      if (!mounted) return;
+      showTopSnackBar(context, "已删除「${student.name}」的所有信息", bottomMargin: 82);
+
+      setState(() {
+        _queryResults = [];
+        _hasQueried = false;
+      });
+      idController.clear();
+      nameController.clear();
+    } catch (e) {
+      if (!mounted) return;
+      showTopSnackBar(context, "删除失败: $e", bottomMargin: 82);
+    }
   }
 
   @override
@@ -2990,7 +3367,7 @@ class _ScorePageState extends State<ScorePage>
         Expanded(
           child: TabBarView(
             controller: _tabController,
-            children: [_buildSearchUI(), _buildAddUI(), _buildDeleteUI()],
+            children: [_buildTrendUI(), _buildQueryUI(), _buildAddUI()],
           ),
         ),
         Container(
@@ -3010,15 +3387,606 @@ class _ScorePageState extends State<ScorePage>
             unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
             indicatorWeight: 3,
             tabs: const [
-              Tab(icon: Icon(Icons.search), text: "查询"),
-              Tab(icon: Icon(Icons.add_circle_outline), text: "录入"),
-              Tab(icon: Icon(Icons.delete_outline), text: "删除"),
+              Tab(icon: Icon(Icons.trending_up), text: "成绩走向"),
+              Tab(icon: Icon(Icons.search), text: "成绩查询"),
+              Tab(icon: Icon(Icons.add_circle_outline), text: "成绩录入"),
             ],
           ),
         ),
       ],
     );
   }
+
+  /// 成绩走向 — 趋势图表
+  Widget _buildTrendUI() {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return _TrendChartView(
+          dio: widget.dio,
+          idController: idController,
+          nameController: nameController,
+        );
+      },
+    );
+  }
+}
+
+/// 成绩走向 — 趋势图表组件
+class _TrendChartView extends StatefulWidget {
+  final Dio dio;
+  final TextEditingController idController;
+  final TextEditingController nameController;
+  const _TrendChartView({
+    required this.dio,
+    required this.idController,
+    required this.nameController,
+  });
+
+  @override
+  State<_TrendChartView> createState() => _TrendChartViewState();
+}
+
+class _TrendChartViewState extends State<_TrendChartView> {
+  List<StudentData> _students = [];
+  bool _isLoading = false;
+  bool _hasSearched = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _prefillFromConfig();
+  }
+
+  /// 从配置中预填姓名和学号，然后自动执行查询
+  Future<void> _prefillFromConfig() async {
+    try {
+      final config = await loadConfigFile();
+      final id = config['STUDENT_ID']?.toString() ?? '';
+      final name = config['STUDENT_NAME']?.toString() ?? '';
+      if (id.isNotEmpty || name.isNotEmpty) {
+        if (widget.idController.text.trim().isEmpty) {
+          widget.idController.text = id;
+        }
+        if (widget.nameController.text.trim().isEmpty) {
+          widget.nameController.text = name;
+        }
+      }
+      // 下一帧自动搜索（确保组件已就绪）
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_hasSearched) _searchStudent();
+      });
+    } catch (e) {
+      debugPrint(">>> 预填用户信息失败: $e");
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // 查询区域
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: widget.idController,
+                          decoration: const InputDecoration(
+                            labelText: '学生ID',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: TextField(
+                          controller: widget.nameController,
+                          decoration: const InputDecoration(
+                            labelText: '学生姓名',
+                            border: OutlineInputBorder(),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 40,
+                    child: ElevatedButton.icon(
+                      onPressed: _isLoading ? null : _searchStudent,
+                      icon: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.trending_up, size: 18),
+                      label: const Text("查看成绩走向"),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          // 查询结果
+          if (_hasSearched && !_isLoading) ...[
+            if (_students.isEmpty)
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.search_off,
+                        size: 48,
+                        color: Colors.grey.shade400,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        "未找到该学生的成绩记录",
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "请检查学号或姓名是否正确",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Text(
+                        "提示：成绩走向基于考试记录（examRecords）绘制，\n与标签（tag）无关。请先在成绩录入中添加成绩。",
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Colors.grey.shade400,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              ..._buildTrendCharts(isDark),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _searchStudent() async {
+    final id = widget.idController.text.trim();
+    final name = widget.nameController.text.trim();
+    if (id.isEmpty && name.isEmpty) {
+      showTopSnackBar(context, "请输入学生ID或姓名", bottomMargin: 82);
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+      _hasSearched = true;
+      _students = [];
+    });
+
+    try {
+      if (Platform.isAndroid) {
+        if (id.isNotEmpty && name.isNotEmpty) {
+          // 双条件：先按 ID 精确查，再按姓名过滤
+          final byId = await LocalScoreService.queryStudentsById(id);
+          _students = byId.where((s) => s.name.contains(name)).toList();
+          if (_students.isEmpty) {
+            // ID+姓名组合无结果，尝试仅姓名模糊查
+            final byName = await LocalScoreService.queryStudentsByName(name);
+            _students = byName.where((s) => s.studentId == id).toList();
+          }
+        } else if (id.isNotEmpty) {
+          _students = await LocalScoreService.queryStudentsById(id);
+        } else {
+          _students = await LocalScoreService.queryStudentsByName(name);
+        }
+      } else {
+        final params = <String, dynamic>{};
+        if (id.isNotEmpty) params['id'] = id;
+        if (name.isNotEmpty) params['name'] = name;
+        final res = await widget.dio.get('/query', queryParameters: params);
+        if (!mounted) return;
+        if (res.data is Map && res.data['error'] == null) {
+          if (res.data['students'] is List) {
+            _students = (res.data['students'] as List)
+                .map((e) => StudentData.fromJson(e as Map<String, dynamic>))
+                .toList();
+          } else {
+            // 单条结果（兼容旧格式）
+            final single = StudentData(
+              studentId: id.isNotEmpty ? id : '',
+              name: res.data['name']?.toString() ?? '未知',
+              scores: Map<String, dynamic>.from(res.data['scores'] ?? {}),
+            );
+            _students = [single];
+          }
+        } else {
+          throw res.data['error']?.toString() ?? '未找到该学生';
+        }
+      }
+      setState(() {});
+    } catch (e) {
+      if (mounted) {
+        showTopSnackBar(context, "查询失败: $e", bottomMargin: 82);
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  List<Widget> _buildTrendCharts(bool isDark) {
+    final result = <Widget>[];
+    final themeColor = Theme.of(context).colorScheme.primary;
+    for (final student in _students) {
+      // 收集该学生所有科目及标签
+      final subjects = student.scores.keys.toList();
+      final allTags = <String>{};
+      for (final record in student.examRecords) {
+        for (final entry in record.scores.entries) {
+          final score = entry.value;
+          if (score is Map && score['tag'] != null) {
+            allTags.add(score['tag'].toString());
+          }
+        }
+      }
+
+      // 学生信息头
+      result.add(
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  "${student.name}（${student.studentId}）",
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  "共 ${student.examRecords.length} 次考试记录",
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      // 当无考试记录时，用当前成绩作为单点展示
+      final List<ExamRecord> chartRecords;
+      if (student.examRecords.isEmpty) {
+        // 用当前成绩模拟一条记录
+        final now = DateTime.now();
+        final dateStr =
+            "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} 00:00";
+        chartRecords = [
+          ExamRecord(date: dateStr, examType: '当前', scores: student.scores),
+        ];
+        result.add(
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Colors.blue.shade400,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "仅有当前成绩数据，录入多次考试后可查看趋势",
+                    style: TextStyle(fontSize: 12, color: Colors.blue.shade600),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      } else {
+        chartRecords = student.examRecords;
+      }
+
+      // === 总分趋势图 ===
+      if (chartRecords.length >= 2) {
+        final totalSpots = <FlSpot>[];
+        final totalLabels = <int, String>{};
+        int ti = 0;
+        final sortedTotal = chartRecords.toList()
+          ..sort((a, b) => a.date.compareTo(b.date));
+        for (final record in sortedTotal) {
+          double total = 0;
+          bool hasAny = false;
+          for (final subject in subjects) {
+            final s = record.scores[subject];
+            if (s != null) {
+              total += LocalScoreService.extractScore(s);
+              hasAny = true;
+            }
+          }
+          if (!hasAny) continue;
+          totalSpots.add(FlSpot(ti.toDouble(), total));
+          final dateShort = record.date.length >= 16
+              ? record.date.substring(5, 10)
+              : record.date;
+          totalLabels[ti] = dateShort;
+          ti++;
+        }
+        if (totalSpots.length >= 2) {
+          final maxV = totalSpots
+              .map((s) => s.y)
+              .reduce((a, b) => a > b ? a : b);
+          final minV = totalSpots
+              .map((s) => s.y)
+              .reduce((a, b) => a < b ? a : b);
+          final pad = (maxV - minV).clamp(10, 100) * 0.3;
+          result.add(
+            Padding(
+              padding: const EdgeInsets.only(bottom: 16),
+              child: Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(Icons.summarize, size: 20, color: themeColor),
+                          const SizedBox(width: 8),
+                          Text(
+                            "总分趋势",
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black87,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        "${totalSpots.length} 次记录 · 最新总分: ${totalSpots.last.y.toStringAsFixed(0)}",
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey.shade500,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        height: 200,
+                        child: LineChart(
+                          LineChartData(
+                            minX: 0,
+                            maxX: (totalSpots.length - 1).toDouble(),
+                            minY: (minV - pad).floorToDouble(),
+                            maxY: (maxV + pad).ceilToDouble(),
+                            gridData: FlGridData(
+                              show: true,
+                              drawVerticalLine: false,
+                              horizontalInterval:
+                                  (((maxV - minV + pad * 2) / 5).ceilToDouble())
+                                      .clamp(1, 200)
+                                      .toDouble(),
+                              getDrawingHorizontalLine: (v) => FlLine(
+                                color: isDark
+                                    ? Colors.grey.shade700
+                                    : Colors.grey.shade300,
+                                strokeWidth: 0.5,
+                              ),
+                            ),
+                            titlesData: FlTitlesData(
+                              leftTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 40,
+                                  getTitlesWidget: (v, _) => Text(
+                                    v.toStringAsFixed(0),
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isDark
+                                          ? Colors.grey.shade400
+                                          : Colors.grey.shade600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              bottomTitles: AxisTitles(
+                                sideTitles: SideTitles(
+                                  showTitles: true,
+                                  reservedSize: 28,
+                                  interval: 1,
+                                  getTitlesWidget: (v, _) {
+                                    final l = totalLabels[v.toInt()];
+                                    return l == null
+                                        ? const SizedBox.shrink()
+                                        : Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 4,
+                                            ),
+                                            child: Text(
+                                              l,
+                                              style: TextStyle(
+                                                fontSize: 9,
+                                                color: isDark
+                                                    ? Colors.grey.shade400
+                                                    : Colors.grey.shade600,
+                                              ),
+                                            ),
+                                          );
+                                  },
+                                ),
+                              ),
+                              topTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                              rightTitles: const AxisTitles(
+                                sideTitles: SideTitles(showTitles: false),
+                              ),
+                            ),
+                            borderData: FlBorderData(show: false),
+                            lineBarsData: [
+                              LineChartBarData(
+                                spots: totalSpots,
+                                isCurved: true,
+                                color: Colors.green.shade600,
+                                barWidth: 2.5,
+                                dotData: FlDotData(
+                                  show: true,
+                                  getDotPainter: (_, _, _, _) =>
+                                      FlDotCirclePainter(
+                                        radius: 3,
+                                        color: Colors.green.shade600,
+                                        strokeWidth: 1.5,
+                                        strokeColor: isDark
+                                            ? Colors.black
+                                            : Colors.white,
+                                      ),
+                                ),
+                                belowBarData: BarAreaData(
+                                  show: true,
+                                  color: Colors.green.withValues(alpha: 0.1),
+                                ),
+                              ),
+                            ],
+                            lineTouchData: LineTouchData(
+                              touchTooltipData: LineTouchTooltipData(
+                                getTooltipItems: (spots) => spots.map((s) {
+                                  final l = totalLabels[s.x.toInt()] ?? '';
+                                  return LineTooltipItem(
+                                    '总分: ${s.y.toStringAsFixed(0)}\n$l',
+                                    TextStyle(
+                                      color: Colors.green.shade600,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  );
+                                }).toList(),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+      }
+
+      // 查看全部详情按钮
+      result.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.open_in_new, size: 16),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ScoreResultPage(
+                    userName: student.name,
+                    studentId: student.studentId,
+                    scores: student.scores,
+                    examRecords: student.examRecords,
+                  ),
+                ),
+              ),
+              label: const Text("查看各科成绩走势 →", style: TextStyle(fontSize: 13)),
+            ),
+          ),
+        ),
+      );
+    }
+    return result;
+  }
+}
+
+/// 将 HTML <table> 标签转换为 Markdown 管道表格
+/// 用于兼容 AI 偶尔生成 HTML 表格而非 Markdown 表格的情况
+String _convertHtmlTablesToMarkdown(String input) {
+  // 匹配 <table>...</table> 块
+  final tableRegExp = RegExp(
+    r'<table[^>]*>(.*?)</table>',
+    dotAll: true,
+    caseSensitive: false,
+  );
+  return input.replaceAllMapped(tableRegExp, (match) {
+    final tableContent = match.group(1) ?? '';
+    final rows = <List<String>>[];
+    final rowRegExp = RegExp(
+      r'<tr[^>]*>(.*?)</tr>',
+      dotAll: true,
+      caseSensitive: false,
+    );
+    for (final rowMatch in rowRegExp.allMatches(tableContent)) {
+      final rowHtml = rowMatch.group(1) ?? '';
+      // 提取 th 或 td 的内容
+      final cellRegExp = RegExp(
+        r'<(?:th|td)[^>]*>(.*?)</(?:th|td)>',
+        dotAll: true,
+        caseSensitive: false,
+      );
+      final cells = cellRegExp.allMatches(rowHtml).map((c) {
+        var text = c.group(1)?.trim() ?? '';
+        // 移除单元格内可能残留的 HTML 标签
+        text = text.replaceAll(RegExp(r'<[^>]+>'), '');
+        return text;
+      }).toList();
+      if (cells.isNotEmpty) rows.add(cells);
+    }
+
+    if (rows.isEmpty) return match.group(0) ?? '';
+
+    final buffer = StringBuffer();
+    final colCount = rows.map((r) => r.length).reduce((a, b) => a > b ? a : b);
+
+    // 表头（第一行）
+    buffer.writeln('| ${rows[0].join(' | ')} |');
+    // 分隔行
+    buffer.writeln('| ${List.filled(colCount, '---').join(' | ')} |');
+    // 数据行
+    for (int i = 1; i < rows.length; i++) {
+      // 补齐列数
+      final row = List<String>.from(rows[i]);
+      while (row.length < colCount) {
+        row.add('');
+      }
+      buffer.writeln('| ${row.join(' | ')} |');
+    }
+    return buffer.toString().trim();
+  });
 }
 
 class SchedulePage extends StatefulWidget {
@@ -3184,12 +4152,7 @@ class _SchedulePageState extends State<SchedulePage>
             _itinerary = saved;
             _summary = summary;
           });
-          showTopSnackBar(
-            context,
-            "成功加载 $dateStr 的本地存档",
-            leftMargin: 96,
-            bottomMargin: 82,
-          );
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
         } else {
           setState(() {
             _itinerary = "";
@@ -3221,23 +4184,13 @@ class _SchedulePageState extends State<SchedulePage>
           }
         });
         if (response.data["from_cache"] == true) {
-          showTopSnackBar(
-            context,
-            "成功加载 $dateStr 的本地存档",
-            leftMargin: 96,
-            bottomMargin: 82,
-          );
+          showTopSnackBar(context, "成功加载 $dateStr 的本地存档", bottomMargin: 82);
         }
       }
     } catch (e) {
       debugPrint("读取存档失败: $e");
       if (mounted) {
-        showTopSnackBar(
-          context,
-          "读取存档失败: $e",
-          leftMargin: 96,
-          bottomMargin: 82,
-        );
+        showTopSnackBar(context, "读取存档失败: $e", bottomMargin: 82);
       }
     } finally {
       if (mounted) {
@@ -3254,12 +4207,7 @@ class _SchedulePageState extends State<SchedulePage>
         _includeStudyAdvice && _selectedWeakSubjects.isNotEmpty;
 
     if (!hasTasks && !hasStudyAdvice) {
-      showTopSnackBar(
-        context,
-        "请输入任务内容或选择弱势学科",
-        leftMargin: 96,
-        bottomMargin: 82,
-      );
+      showTopSnackBar(context, "请输入任务内容或选择弱势学科", bottomMargin: 82);
       return;
     }
 
@@ -3268,7 +4216,7 @@ class _SchedulePageState extends State<SchedulePage>
       _itinerary = "";
     });
 
-    showTopSnackBar(context, "正在生成日志……", leftMargin: 96, bottomMargin: 82);
+    showTopSnackBar(context, "正在生成日志……", bottomMargin: 82);
 
     try {
       final dateStr =
@@ -3379,7 +4327,7 @@ class _SchedulePageState extends State<SchedulePage>
     } catch (e) {
       debugPrint("生成日程出错: $e");
       if (mounted) {
-        showTopSnackBar(context, "生成失败: $e", leftMargin: 96, bottomMargin: 82);
+        showTopSnackBar(context, "生成失败: $e", bottomMargin: 82);
       }
     } finally {
       if (mounted) {
@@ -3652,9 +4600,11 @@ class _SchedulePageState extends State<SchedulePage>
                           ),
                         ),
                         child: MarkdownBody(
-                          data: _itinerary
-                              .replaceAll('```markdown', '')
-                              .replaceAll('```', ''),
+                          data: _convertHtmlTablesToMarkdown(
+                            _itinerary
+                                .replaceAll('```markdown', '')
+                                .replaceAll('```', ''),
+                          ),
                           selectable: true,
                           styleSheet: MarkdownStyleSheet(
                             p: TextStyle(

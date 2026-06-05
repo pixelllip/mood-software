@@ -133,21 +133,38 @@ class StudyAnalysisService {
   // ========== 关键词管理 ==========
 
   /// 获取默认关键词列表（从配置和成绩数据中提取，不含自定义关键词）
+  ///
+  /// 优先使用配置中的学生姓名+学号匹配对应的成绩科目；
+  /// 若未找到匹配学生，则回退到全部学生成绩科目。
   static Future<List<String>> getDefaultKeywords() async {
     final keywords = <String>{};
 
-    // 1. 用户配置中的姓名和学号
+    // 从配置读取当前学生身份
     final config = await loadConfigFile();
-    final studentName = config['STUDENT_NAME']?.toString() ?? '';
     final studentId = config['STUDENT_ID']?.toString() ?? '';
-    if (studentName.isNotEmpty) keywords.add(studentName);
-    if (studentId.isNotEmpty) keywords.add(studentId);
+    final studentName = config['STUDENT_NAME']?.toString() ?? '';
 
-    // 2. 成绩记录中的学科名
-    final students = await LocalScoreService.listAllStudents();
-    for (final student in students) {
-      for (final subject in student.scores.keys) {
+    // 优先用 ID+Name 匹配当前学生
+    StudentData? matchedStudent;
+    if (studentId.isNotEmpty || studentName.isNotEmpty) {
+      matchedStudent = await LocalScoreService.queryStudent(
+        id: studentId.isNotEmpty ? studentId : null,
+        name: studentName.isNotEmpty ? studentName : null,
+      );
+    }
+
+    if (matchedStudent != null) {
+      // 仅使用匹配学生的科目
+      for (final subject in matchedStudent.scores.keys) {
         keywords.add(subject);
+      }
+    } else {
+      // 回退：所有学生的科目
+      final students = await LocalScoreService.listAllStudents();
+      for (final student in students) {
+        for (final subject in student.scores.keys) {
+          keywords.add(subject);
+        }
       }
     }
 
@@ -1111,5 +1128,391 @@ AI回答：${aiResponse.length > 200 ? "${aiResponse.substring(0, 200)}..." : ai
     }
 
     return newKeywords;
+  }
+}
+
+// ==================== 关联洞察引擎（Phase B） ====================
+
+/// 洞察结果：一条学习洞察
+class LearningInsight {
+  final String type; // 'decline' | 'improvement' | 'warning' | 'praise'
+  final String subject;
+  final String title;
+  final String description;
+  final String severity; // 'high' | 'medium' | 'low'
+
+  const LearningInsight({
+    required this.type,
+    required this.subject,
+    required this.title,
+    required this.description,
+    this.severity = 'medium',
+  });
+}
+
+/// 关联洞察引擎 — 分析成绩趋势、对话活跃度、日程完成率的关联关系
+class InsightEngine {
+  /// 分析某学生的退步原因
+  static Future<List<LearningInsight>> analyzeScoreDecline(
+    String studentId,
+  ) async {
+    final insights = <LearningInsight>[];
+    final students = await LocalScoreService.loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return insights;
+
+    final student = students[idx];
+    final decliningSubjects = student.scores.keys
+        .where((s) => student.isDeclining(s))
+        .toList();
+
+    for (final subject in decliningSubjects) {
+      final history = student.getScoreHistory(subject);
+      if (history.length >= 2) {
+        final latest = LocalScoreService.extractScore(history.last['score']);
+        final prev = LocalScoreService.extractScore(
+          history[history.length - 2]['score'],
+        );
+        final drop = prev - latest;
+
+        // 检查同期对话活跃度
+        final latestDate = history.last['date'].toString().split(' ')[0];
+        final prevDate = history[history.length - 2]['date'].toString().split(
+          ' ',
+        )[0];
+        final recentChats =
+            await StudyAnalysisService.queryMatchedConversations(
+              startDate: prevDate,
+              endDate: latestDate,
+              keywords: [subject],
+            );
+
+        insights.add(
+          LearningInsight(
+            type: 'decline',
+            subject: subject,
+            title: '$subject 成绩下降',
+            description:
+                '从 ${prev.toStringAsFixed(prev == prev.roundToDouble() ? 0 : 1)} 分降至 '
+                '${latest.toStringAsFixed(latest == latest.roundToDouble() ? 0 : 1)} 分（降幅 $drop 分）'
+                '${recentChats.isEmpty ? "。期间未发现与「$subject」相关的学习对话" : "。期间有 ${recentChats.length} 条相关对话"}',
+            severity: drop > 10 ? 'high' : 'medium',
+          ),
+        );
+      }
+    }
+
+    return insights;
+  }
+
+  /// 综合学习健康度评分
+  static Future<Map<String, dynamic>> getOverallLearningHealth(
+    String studentId,
+  ) async {
+    final students = await LocalScoreService.loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return {'score': 0, 'grade': '无数据'};
+
+    final student = students[idx];
+    double score = 0;
+
+    // 1. 成绩趋势（40分）
+    if (student.examRecords.isNotEmpty) {
+      final subjects = student.scores.keys.toList();
+      int decliningCount = 0;
+      for (final subject in subjects) {
+        if (student.isDeclining(subject)) decliningCount++;
+      }
+      final ratio = subjects.isNotEmpty
+          ? (subjects.length - decliningCount) / subjects.length
+          : 0;
+      score += ratio * 40;
+    }
+
+    // 2. 对话活跃度（30分）— 最近 7 天
+    try {
+      final today = DateTime.now();
+      final weekAgo = today.subtract(const Duration(days: 7));
+      String dateStr(DateTime d) =>
+          "${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}";
+      final config = await loadConfigFile();
+      final name = config['STUDENT_NAME']?.toString() ?? '';
+      final chats = await StudyAnalysisService.queryMatchedConversations(
+        startDate: dateStr(weekAgo),
+        endDate: dateStr(today),
+        keywords: name.isNotEmpty
+            ? [name, ...student.scores.keys]
+            : student.scores.keys.toList(),
+      );
+      final chatScore = (chats.length / 20).clamp(0.0, 1.0);
+      score += chatScore * 30;
+    } catch (_) {}
+
+    // 3. 日程完成率（30分）
+    try {
+      final allSummaries = await StudyAnalysisService.loadAllSummaries();
+      if (allSummaries.isNotEmpty) {
+        double totalRate = 0;
+        int count = 0;
+        for (final summary in allSummaries.values) {
+          if (summary.totalSchedules > 0) {
+            totalRate += summary.completedSchedules / summary.totalSchedules;
+            count++;
+          }
+        }
+        final avgRate = count > 0 ? totalRate / count : 0;
+        score += avgRate * 30;
+      }
+    } catch (_) {}
+
+    final total = score.clamp(0.0, 100.0);
+    String grade;
+    if (total >= 85) {
+      grade = '优秀';
+    } else if (total >= 65) {
+      grade = '良好';
+    } else if (total >= 45) {
+      grade = '注意';
+    } else {
+      grade = '警告';
+    }
+
+    return {
+      'score': total,
+      'grade': grade,
+      'decliningSubjects': student.scores.keys
+          .where((s) => student.isDeclining(s))
+          .toList(),
+      'totalSubjects': student.scores.length,
+    };
+  }
+}
+
+// ==================== 笔记模块（Phase A: 知识中心） ====================
+
+/// 笔记条目
+class NoteEntry {
+  final String id;
+  String title;
+  String content; // Markdown 内容
+  String subject; // 所属科目（为空表示通用）
+  List<String> tags;
+  final DateTime createdAt;
+  DateTime updatedAt;
+
+  NoteEntry({
+    String? id,
+    required this.title,
+    this.content = '',
+    this.subject = '',
+    this.tags = const [],
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) : id = id ?? DateTime.now().millisecondsSinceEpoch.toString(),
+       createdAt = createdAt ?? DateTime.now(),
+       updatedAt = updatedAt ?? DateTime.now();
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'content': content,
+    'subject': subject,
+    'tags': tags,
+    'created_at': createdAt.toIso8601String(),
+    'updated_at': updatedAt.toIso8601String(),
+  };
+
+  factory NoteEntry.fromJson(Map<String, dynamic> json) => NoteEntry(
+    id: json['id']?.toString(),
+    title: json['title']?.toString() ?? '',
+    content: json['content']?.toString() ?? '',
+    subject: json['subject']?.toString() ?? '',
+    tags:
+        (json['tags'] as List<dynamic>?)?.map((e) => e.toString()).toList() ??
+        [],
+    createdAt: DateTime.tryParse(json['created_at']?.toString() ?? ''),
+    updatedAt: DateTime.tryParse(json['updated_at']?.toString() ?? ''),
+  );
+}
+
+/// 笔记存储服务
+class NoteService {
+  static const _fileName = 'study_notes.json';
+
+  static Future<File> _getFile() async {
+    final config = await loadConfigFile();
+    final basePath =
+        config['BASE_PATH']?.toString() ?? (await getProjectDirectory()).path;
+    final dir = Directory('$basePath/StudyAnalysis');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/$_fileName');
+  }
+
+  /// 加载所有笔记
+  static Future<List<NoteEntry>> loadNotes() async {
+    try {
+      final file = await _getFile();
+      if (!await file.exists()) return [];
+      final content = await file.readAsString();
+      final list = json.decode(content) as List<dynamic>;
+      return list
+          .map((e) => NoteEntry.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (e) {
+      debugPrint(">>> 读取笔记失败: $e");
+      return [];
+    }
+  }
+
+  /// 保存所有笔记
+  static Future<void> _saveNotes(List<NoteEntry> notes) async {
+    final file = await _getFile();
+    await file.writeAsString(
+      const JsonEncoder.withIndent(
+        '  ',
+      ).convert(notes.map((n) => n.toJson()).toList()),
+    );
+  }
+
+  /// 添加笔记
+  static Future<void> addNote(NoteEntry note) async {
+    final notes = await loadNotes();
+    notes.insert(0, note);
+    await _saveNotes(notes);
+  }
+
+  /// 更新笔记
+  static Future<void> updateNote(NoteEntry updated) async {
+    final notes = await loadNotes();
+    final idx = notes.indexWhere((n) => n.id == updated.id);
+    if (idx >= 0) {
+      updated.updatedAt = DateTime.now();
+      notes[idx] = updated;
+      await _saveNotes(notes);
+    }
+  }
+
+  /// 删除笔记
+  static Future<void> deleteNote(String id) async {
+    final notes = await loadNotes();
+    notes.removeWhere((n) => n.id == id);
+    await _saveNotes(notes);
+  }
+
+  /// 按科目筛选笔记
+  static Future<List<NoteEntry>> getNotesBySubject(String subject) async {
+    if (subject.isEmpty) return loadNotes();
+    final notes = await loadNotes();
+    return notes.where((n) => n.subject == subject).toList();
+  }
+
+  /// 搜索笔记（标题 + 内容模糊匹配）
+  static Future<List<NoteEntry>> searchNotes(String keyword) async {
+    if (keyword.isEmpty) return loadNotes();
+    final kw = keyword.toLowerCase();
+    final notes = await loadNotes();
+    return notes.where((n) {
+      return n.title.toLowerCase().contains(kw) ||
+          n.content.toLowerCase().contains(kw) ||
+          n.tags.any((t) => t.toLowerCase().contains(kw));
+    }).toList();
+  }
+
+  /// 获取所有笔记涉及的科目列表
+  static Future<List<String>> getDistinctSubjects() async {
+    final notes = await loadNotes();
+    final subjects = notes
+        .map((n) => n.subject)
+        .where((s) => s.isNotEmpty)
+        .toSet();
+    return subjects.toList()..sort();
+  }
+}
+
+/// 系统文档条目
+class SystemDocEntry {
+  final String title;
+  final String description;
+  final String filePath; // 相对于项目根目录的路径
+  final String icon;
+
+  const SystemDocEntry({
+    required this.title,
+    required this.description,
+    required this.filePath,
+    this.icon = '📄',
+  });
+}
+
+/// 系统文档提供者（从项目文件中读取）
+class SystemDocProvider {
+  static const List<SystemDocEntry> docEntries = [
+    SystemDocEntry(
+      title: '项目总览',
+      description: '功能特性、架构、快速开始',
+      filePath: 'README.md',
+      icon: '📖',
+    ),
+    SystemDocEntry(
+      title: '工作总结',
+      description: '2026-05-25 起的功能实现详情',
+      filePath: 'SUMMARY.md',
+      icon: '📋',
+    ),
+    SystemDocEntry(
+      title: '需求分析',
+      description: '项目初期需求设计文档',
+      filePath: 'analysis.md',
+      icon: '📐',
+    ),
+    SystemDocEntry(
+      title: '功能清单',
+      description: '已完成 49 项功能清单',
+      filePath: 'TODO.md',
+      icon: '✅',
+    ),
+    SystemDocEntry(
+      title: '完成记录',
+      description: '手机端功能完善记录',
+      filePath: 'DONE.md',
+      icon: '🏁',
+    ),
+    SystemDocEntry(
+      title: '配置说明',
+      description: 'AI 配置和环境设置指南',
+      filePath: 'lib/configure.md',
+      icon: '⚙️',
+    ),
+    SystemDocEntry(
+      title: '系统指令',
+      description: 'AI 助手的系统提示指令',
+      filePath: 'lib/instructions.txt',
+      icon: '🤖',
+    ),
+    SystemDocEntry(
+      title: 'Beta 冲刺总结',
+      description: 'AI 认知时效性、UI 优化',
+      filePath: 'BETA_BLOG.md',
+      icon: '🚀',
+    ),
+  ];
+
+  /// 读取文档内容
+  static Future<String> loadDocContent(SystemDocEntry entry) async {
+    try {
+      final projectDir = await getProjectDirectory();
+      final file = File('${projectDir.path}/${entry.filePath}');
+      if (!await file.exists()) return '文档文件不存在: ${entry.filePath}';
+      return await file.readAsString();
+    } catch (e) {
+      return '读取失败: $e';
+    }
+  }
+
+  /// 获取文档的简短摘要（前 100 字）
+  static Future<String> loadDocSummary(SystemDocEntry entry) async {
+    final content = await loadDocContent(entry);
+    if (content.length <= 100) return content;
+    return '${content.substring(0, 100)}...';
   }
 }

@@ -6,22 +6,61 @@ import 'package:ai_agent/backend_utils.dart';
 
 // ==================== 成绩管理 ====================
 
+/// 考试记录（时间戳版本的成绩快照）
+class ExamRecord {
+  final String date; // yyyy-MM-dd HH:mm
+  final String examType; // 'exam' | 'quiz' | 'mock' | '日常'
+  final String? semester;
+  final String? label; // 如"期中考试"、"月考"等
+  final Map<String, dynamic> scores; // 与 StudentData.scores 格式一致
+
+  const ExamRecord({
+    required this.date,
+    this.examType = '日常',
+    this.semester,
+    this.label,
+    this.scores = const {},
+  });
+
+  Map<String, dynamic> toJson() => {
+    'date': date,
+    'exam_type': examType,
+    'semester': semester,
+    'label': label,
+    'scores': scores,
+  };
+
+  factory ExamRecord.fromJson(Map<String, dynamic> json) => ExamRecord(
+    date: json['date']?.toString() ?? '',
+    examType: json['exam_type']?.toString() ?? '日常',
+    semester: json['semester']?.toString(),
+    label: json['label']?.toString(),
+    scores: json['scores'] is Map
+        ? Map<String, dynamic>.from(json['scores'] as Map)
+        : {},
+  );
+}
+
 /// 学生成绩数据模型（与 Kotlin/Python 后端格式一致）
 class StudentData {
   final String studentId;
   final String name;
   final Map<String, dynamic> scores;
+  final List<ExamRecord> examRecords; // 历史考试记录
 
   const StudentData({
     required this.studentId,
     required this.name,
     this.scores = const {},
+    this.examRecords = const [],
   });
 
   Map<String, dynamic> toJson() => {
     'student_id': studentId,
     'name': name,
     'scores': scores,
+    if (examRecords.isNotEmpty)
+      'exam_records': examRecords.map((r) => r.toJson()).toList(),
   };
 
   factory StudentData.fromJson(Map<String, dynamic> json) => StudentData(
@@ -30,7 +69,50 @@ class StudentData {
     scores: json['scores'] is Map
         ? Map<String, dynamic>.from(json['scores'] as Map)
         : {},
+    examRecords: json['exam_records'] is List
+        ? (json['exam_records'] as List)
+              .map((e) => ExamRecord.fromJson(e as Map<String, dynamic>))
+              .toList()
+        : [],
   );
+
+  /// 获取某科目的历史成绩序列（按时间升序）
+  List<Map<String, dynamic>> getScoreHistory(String subject) {
+    final history = <Map<String, dynamic>>[];
+    for (final record in examRecords) {
+      final score = record.scores[subject];
+      if (score != null) {
+        history.add({
+          'date': record.date,
+          'label': record.label ?? record.examType,
+          'score': score,
+        });
+      }
+    }
+    return history;
+  }
+
+  /// 判断某科目是否退步（连续两次下降）
+  bool isDeclining(String subject) {
+    final history = getScoreHistory(subject);
+    if (history.length < 3) return false;
+    final recent = history.reversed.take(3).toList();
+    final v0 = LocalScoreService.extractScore(recent[0]['score']);
+    final v1 = LocalScoreService.extractScore(recent[1]['score']);
+    final v2 = LocalScoreService.extractScore(recent[2]['score']);
+    return v0 < v1 && v1 < v2; // 连续三次下降
+  }
+
+  /// 获取最新一次考试成绩与上一次的差值
+  double? getScoreChange(String subject) {
+    final history = getScoreHistory(subject);
+    if (history.length < 2) return null;
+    final latest = LocalScoreService.extractScore(history.last['score']);
+    final prev = LocalScoreService.extractScore(
+      history[history.length - 2]['score'],
+    );
+    return latest - prev;
+  }
 }
 
 /// 手机端本地成绩管理服务
@@ -70,15 +152,44 @@ class LocalScoreService {
     );
   }
 
-  /// 标准化分数值（统一转为 num，字符串转数字）
-  static dynamic _normalizeScore(dynamic v) {
+  /// 从分数值中提取分数（支持旧版纯数字和新版对象格式）
+  static double extractScore(dynamic v) {
     if (v == null) return 0;
-    if (v is num) return v;
-    if (v is String) {
-      final parsed = double.tryParse(v);
-      return parsed ?? 0;
+    if (v is num) return v.toDouble();
+    if (v is Map) {
+      final score = v['score'];
+      if (score is num) return score.toDouble();
+      return double.tryParse(score?.toString() ?? '') ?? 0;
     }
-    return 0;
+    return double.tryParse(v.toString()) ?? 0;
+  }
+
+  /// 从分数值中提取满分（支持旧版和新版格式）
+  static double extractFullMark(dynamic v) {
+    if (v is Map && v.containsKey('fullMark')) {
+      final fm = v['fullMark'];
+      if (fm is num) return fm.toDouble();
+      return double.tryParse(fm?.toString() ?? '') ?? 100;
+    }
+    return 100; // 默认满分 100
+  }
+
+  /// 标准化分数值（统一转为 num，字符串转数字；新格式保存为 Map）
+  static dynamic _normalizeScore(dynamic v, {double? fullMark}) {
+    if (v == null) return 0;
+    double score;
+    if (v is num) {
+      score = v.toDouble();
+    } else if (v is String) {
+      score = double.tryParse(v) ?? 0;
+    } else {
+      score = 0;
+    }
+    // 如果指定了满分且不是默认 100，保存为对象格式
+    if (fullMark != null && fullMark != 100) {
+      return {'score': score, 'fullMark': fullMark};
+    }
+    return score;
   }
 
   /// 按 ID 查询，返回所有匹配的学生（允许同学号不同名）
@@ -118,20 +229,43 @@ class LocalScoreService {
     return await loadStudents();
   }
 
-  /// 添加/更新成绩（自动标准化分数值）
+  /// 添加/更新成绩（自动标准化分数值，自动创建考试记录）
   /// 匹配规则：同学号 + 同姓名 → 合并成绩；同学号 + 不同姓名 → 新建条目
+  /// scores 格式：{"数学": 88} 或 {"数学": {"score": 88, "fullMark": 150}}
   static Future<String> addScore({
     required String studentId,
     required String name,
     required Map<String, dynamic> scores,
+    String? label, // 可选：如"期中考试"、"月考"
+    String? examType, // 可选：'exam' | 'quiz' | 'mock' | '日常'
   }) async {
     final students = await loadStudents();
 
     // 标准化所有分数值
     final normalizedScores = <String, dynamic>{};
     for (final entry in scores.entries) {
-      normalizedScores[entry.key] = _normalizeScore(entry.value);
+      final value = entry.value;
+      double? fm;
+      if (value is Map) {
+        fm = (value['fullMark'] as num?)?.toDouble();
+      }
+      normalizedScores[entry.key] = _normalizeScore(
+        value is Map ? (value['score'] ?? value) : value,
+        fullMark: fm,
+      );
     }
+
+    // 创建考试记录
+    final now = DateTime.now();
+    final dateStr =
+        "${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')} "
+        "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+    final examRecord = ExamRecord(
+      date: dateStr,
+      examType: examType ?? '日常',
+      label: label,
+      scores: Map<String, dynamic>.from(normalizedScores),
+    );
 
     // 查找同学号且同姓名（精确匹配）的已有条目
     final idx = students.indexWhere(
@@ -139,7 +273,7 @@ class LocalScoreService {
     );
 
     if (idx >= 0) {
-      // 同学号 + 同姓名 → 合并成绩
+      // 同学号 + 同姓名 → 合并成绩 + 追加考试记录
       final existing = students[idx];
       final merged = Map<String, dynamic>.from(existing.scores);
       merged.addAll(normalizedScores);
@@ -147,17 +281,71 @@ class LocalScoreService {
         studentId: studentId,
         name: name,
         scores: merged,
+        examRecords: [...existing.examRecords, examRecord],
       );
       await _saveStudents(students);
       return '已为学生 [$name] 更新/合并成绩。';
     } else {
       // 同学号不同名 或 新学生 → 新建条目
       students.add(
-        StudentData(studentId: studentId, name: name, scores: normalizedScores),
+        StudentData(
+          studentId: studentId,
+          name: name,
+          scores: normalizedScores,
+          examRecords: [examRecord],
+        ),
       );
       await _saveStudents(students);
       return '成功录入新学生：$name';
     }
+  }
+
+  /// 更新某学生单科成绩的标签
+  static Future<bool> updateSubjectTag({
+    required String studentId,
+    required String subject,
+    required String tag,
+  }) async {
+    final students = await loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return false;
+    final existing = students[idx];
+    final updatedScores = Map<String, dynamic>.from(existing.scores);
+    final oldScore = updatedScores[subject];
+    if (oldScore is Map) {
+      updatedScores[subject] = {...oldScore, 'tag': tag};
+    } else if (oldScore != null) {
+      updatedScores[subject] = {'score': oldScore, 'tag': tag};
+    } else {
+      updatedScores[subject] = {'score': 0, 'tag': tag};
+    }
+    students[idx] = StudentData(
+      studentId: existing.studentId,
+      name: existing.name,
+      scores: updatedScores,
+      examRecords: existing.examRecords,
+    );
+    await _saveStudents(students);
+    return true;
+  }
+
+  /// 获取某学生的完整考试历史
+  static Future<List<ExamRecord>> getExamHistory(String studentId) async {
+    final students = await loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return [];
+    return students[idx].examRecords;
+  }
+
+  /// 检测退步科目
+  static Future<List<String>> detectDecliningSubjects(String studentId) async {
+    final students = await loadStudents();
+    final idx = students.indexWhere((s) => s.studentId == studentId);
+    if (idx < 0) return [];
+    final student = students[idx];
+    return student.scores.keys
+        .where((subject) => student.isDeclining(subject))
+        .toList();
   }
 
   /// 删除学生
@@ -280,8 +468,15 @@ $studyAdviceSection
 请严格按以下 JSON 格式返回，不要包含任何其他文字：
 {
   "summary": "一句话总结今日行程重点（30字以内）",
-  "detail": "完整的详细日程，包含：1. 今日天气与出行综述。2. 使用 Markdown 表格展示日程安排（列：时间、任务、地点、环境建议）。3. 结尾温馨提醒。"
+  "detail": "完整的详细日程，包含：1. 今日天气与出行综述。2. 使用 Markdown 管道表格（Pipe Table）展示日程安排，表头列为：时间 | 任务 | 地点 | 环境建议。3. 结尾温馨提醒。"
 }
+
+【重要格式要求】：
+- detail 中的表格必须使用 Markdown 管道表格语法（| 分隔列），切勿使用 HTML <table> 标签。
+- 示例格式：
+  | 时间 | 任务 | 地点 | 环境建议 |
+  | --- | --- | --- | --- |
+  | 07:00-08:00 | 晨跑 | 公园 | 注意防晒 |
 '''
             .trim();
 
