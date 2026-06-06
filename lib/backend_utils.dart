@@ -829,22 +829,29 @@ void showTopSnackBarWithState({
   double bottomMargin = 6,
   double screenWidth = 0,
 }) {
-  // 计算水平边距
-  double left;
-  double right;
-  if (isMobile) {
-    // 手机（抽屉）：离屏幕边缘各 8px
-    left = 8;
-    right = 8;
-  } else {
-    // 桌面：占用 75% 屏幕宽度，水平居中
-    final margin = screenWidth * 0.125; // 每侧 12.5%
-    left = margin;
-    right = margin;
-    // 最小边距 16px
-    if (left < 16) left = 16;
-    if (right < 16) right = 16;
+  // 统一标准：SnackBar 根据文字长度动态决定宽度
+  // 统一标准：不设 width（与 margin 冲突），改用 margin 控制宽度
+  // 手机最小边距 8px，桌面最大边距 96px（文字短时边距更大，文字长时保持最大 96px）
+  final double maxMargin = isMobile ? 8 : 96;
+  final double maxWidth = screenWidth - maxMargin * 2;
+
+  // 估算文字宽度：中文字符 ~14px，拉丁字符 ~8px，加 40px 内边距
+  double textWidth = 0;
+  for (int i = 0; i < message.length; i++) {
+    final code = message.codeUnitAt(i);
+    if (code >= 0x4E00 && code <= 0x9FFF) {
+      textWidth += 14;
+    } else {
+      textWidth += 8;
+    }
   }
+  final double paddedWidth = textWidth + 40;
+  final double targetWidth = maxWidth > 0
+      ? paddedWidth.clamp(isMobile ? 140.0 : 200.0, maxWidth)
+      : (isMobile ? 300.0 : 400.0);
+
+  // 水平居中：左右边距相等
+  final double horizontalMargin = (screenWidth - targetWidth) / 2;
 
   messenger.clearSnackBars();
   messenger.showSnackBar(
@@ -852,8 +859,8 @@ void showTopSnackBarWithState({
       content: Text(message, textAlign: TextAlign.center),
       behavior: SnackBarBehavior.floating,
       margin: EdgeInsets.only(
-        left: left,
-        right: right,
+        left: horizontalMargin,
+        right: horizontalMargin,
         bottom: bottomMargin + bottomPadding,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -892,6 +899,155 @@ void showTopSnackBar(
     bottomMargin: bottomMargin,
     screenWidth: screenWidth,
   );
+}
+
+/// 在 Overlay 层显示一个浮动通知（可遮挡弹窗/Dialog）
+/// 解决了 SnackBar 在 Dialog 下方显示的层级问题
+/// [bottomMargin] 可自定义底部间距，默认 82
+void showOverlaySnackBar(
+  BuildContext context,
+  String message, {
+  double bottomMargin = 82,
+}) {
+  final overlay = Overlay.of(context);
+  final padding = MediaQuery.of(context).padding;
+  final isMobile = MediaQuery.of(context).size.width < 450;
+  final screenWidth = MediaQuery.of(context).size.width;
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+
+  late OverlayEntry entry;
+  entry = OverlayEntry(
+    builder: (context) => _OverlaySnackBarWidget(
+      message: message,
+      isDark: isDark,
+      bottomPadding: padding.bottom,
+      bottomMargin: bottomMargin,
+      screenWidth: screenWidth,
+      isMobile: isMobile,
+      onDismiss: () => entry.remove(),
+    ),
+  );
+
+  overlay.insert(entry);
+}
+
+class _OverlaySnackBarWidget extends StatefulWidget {
+  final String message;
+  final bool isDark;
+  final double bottomPadding;
+  final double bottomMargin;
+  final double screenWidth;
+  final bool isMobile;
+  final VoidCallback onDismiss;
+
+  const _OverlaySnackBarWidget({
+    required this.message,
+    required this.isDark,
+    required this.bottomPadding,
+    required this.bottomMargin,
+    required this.screenWidth,
+    required this.isMobile,
+    required this.onDismiss,
+  });
+
+  @override
+  State<_OverlaySnackBarWidget> createState() => _OverlaySnackBarWidgetState();
+}
+
+class _OverlaySnackBarWidgetState extends State<_OverlaySnackBarWidget>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _opacity;
+  late Animation<Offset> _offset;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    _opacity = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _offset = Tween<Offset>(
+      begin: const Offset(0, 0.5),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
+
+    _controller.forward();
+
+    // 3秒后自动消失
+    Future.delayed(const Duration(seconds: 3), () {
+      if (mounted) {
+        _controller.reverse().then((_) => widget.onDismiss());
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // 复用 showTopSnackBarWithState 的宽度计算逻辑
+    final double maxMargin = widget.isMobile ? 8 : 96;
+    final double maxWidth = widget.screenWidth - maxMargin * 2;
+
+    double textWidth = 0;
+    for (int i = 0; i < widget.message.length; i++) {
+      final code = widget.message.codeUnitAt(i);
+      if (code >= 0x4E00 && code <= 0x9FFF) {
+        textWidth += 14;
+      } else {
+        textWidth += 8;
+      }
+    }
+    final double paddedWidth = textWidth + 40;
+    final double targetWidth =
+        maxWidth > 0
+            ? paddedWidth.clamp(widget.isMobile ? 140.0 : 200.0, maxWidth)
+            : (widget.isMobile ? 300.0 : 400.0);
+
+    final double horizontalMargin = (widget.screenWidth - targetWidth) / 2;
+
+    return Positioned(
+      bottom: widget.bottomMargin + widget.bottomPadding,
+      left: horizontalMargin,
+      right: horizontalMargin,
+      child: FadeTransition(
+        opacity: _opacity,
+        child: SlideTransition(
+          position: _offset,
+          child: Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              decoration: BoxDecoration(
+                color: widget.isDark ? const Color(0xFF323232) : Colors.black87,
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.3),
+                    blurRadius: 10,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Text(
+                widget.message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 @Preview()

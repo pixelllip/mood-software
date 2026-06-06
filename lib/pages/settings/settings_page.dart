@@ -241,6 +241,8 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               const SizedBox(height: 24),
               _buildApiSettingsCard(),
+              const SizedBox(height: 16),
+              _buildFeatureGuideCard(),
             ],
           ),
         ),
@@ -274,11 +276,40 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
         const SizedBox(height: 24),
         _buildApiSettingsCard(),
+        const SizedBox(height: 16),
+        _buildFeatureGuideCard(),
       ],
     );
   }
 
   /// API 设置导航卡片（跳转到子页）
+  /// 功能介绍卡片（重新触发 Tour）
+  Widget _buildFeatureGuideCard() {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: Colors.green.shade100),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListTile(
+        leading: Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Colors.green.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: const Icon(Icons.auto_stories, color: Colors.green),
+        ),
+        title: const Text("📖 功能介绍"),
+        subtitle: const Text("查看各模块功能说明和使用引导"),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: () {
+          Navigator.pop(context, true);
+        },
+      ),
+    );
+  }
+
   Widget _buildApiSettingsCard() {
     return Card(
       elevation: 0,

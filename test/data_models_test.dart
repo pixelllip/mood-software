@@ -311,4 +311,326 @@ void main() {
       expect(student.scores.isEmpty, isTrue);
     });
   });
+
+  // ==================== StudentData 方法测试 ====================
+  group('StudentData 方法', () {
+    test('getScoreHistory 返回有序历史记录', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 95},
+        examRecords: [
+          ExamRecord(
+            date: '2026-01-10 10:00',
+            examType: '月考',
+            scores: {'数学': 85},
+          ),
+          ExamRecord(
+            date: '2026-01-15 10:00',
+            examType: '月考',
+            scores: {'数学': 90},
+          ),
+          ExamRecord(
+            date: '2026-01-20 10:00',
+            examType: '月考',
+            scores: {'数学': 95},
+          ),
+        ],
+      );
+
+      final history = student.getScoreHistory('数学');
+
+      expect(history.length, 3);
+      expect(history[0]['date'], '2026-01-10 10:00');
+      expect(history[0]['score'], 85);
+      expect(history[1]['score'], 90);
+      expect(history[2]['score'], 95);
+    });
+
+    test('getScoreHistory 不存在的科目返回空列表', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 95},
+        examRecords: [
+          ExamRecord(date: '2026-01-10 10:00', examType: '月考', scores: {'数学': 85}),
+        ],
+      );
+
+      expect(student.getScoreHistory('英语'), []);
+    });
+
+    test('isDeclining 连续三次下降返回 true', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 70},
+        examRecords: [
+          ExamRecord(date: '2026-01-01 10:00', examType: '月考', scores: {'数学': 90}),
+          ExamRecord(date: '2026-01-08 10:00', examType: '月考', scores: {'数学': 80}),
+          ExamRecord(date: '2026-01-15 10:00', examType: '月考', scores: {'数学': 70}),
+        ],
+      );
+
+      expect(student.isDeclining('数学'), isTrue);
+    });
+
+    test('isDeclining 少于3条记录返回 false', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 80},
+        examRecords: [
+          ExamRecord(date: '2026-01-01 10:00', examType: '月考', scores: {'数学': 90}),
+          ExamRecord(date: '2026-01-08 10:00', examType: '月考', scores: {'数学': 80}),
+        ],
+      );
+
+      expect(student.isDeclining('数学'), isFalse);
+    });
+
+    test('isDeclining 非连续下降返回 false', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 85},
+        examRecords: [
+          ExamRecord(date: '2026-01-01 10:00', examType: '月考', scores: {'数学': 70}),
+          ExamRecord(date: '2026-01-08 10:00', examType: '月考', scores: {'数学': 90}),
+          ExamRecord(date: '2026-01-15 10:00', examType: '月考', scores: {'数学': 85}),
+        ],
+      );
+
+      expect(student.isDeclining('数学'), isFalse);
+    });
+
+    test('getScoreChange 返回正确差值', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 95},
+        examRecords: [
+          ExamRecord(date: '2026-01-10 10:00', examType: '月考', scores: {'数学': 85}),
+          ExamRecord(date: '2026-01-20 10:00', examType: '月考', scores: {'数学': 95}),
+        ],
+      );
+
+      expect(student.getScoreChange('数学'), 10.0);
+    });
+
+    test('getScoreChange 少于2条返回 null', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 95},
+        examRecords: [
+          ExamRecord(date: '2026-01-10 10:00', examType: '月考', scores: {'数学': 85}),
+        ],
+      );
+
+      expect(student.getScoreChange('数学'), isNull);
+    });
+
+    test('getScoreChange 分数下降返回负值', () {
+      final student = StudentData(
+        studentId: '2024001',
+        name: '张三',
+        scores: {'数学': 80},
+        examRecords: [
+          ExamRecord(date: '2026-01-10 10:00', examType: '月考', scores: {'数学': 95}),
+          ExamRecord(date: '2026-01-20 10:00', examType: '月考', scores: {'数学': 80}),
+        ],
+      );
+
+      final change = student.getScoreChange('数学');
+      expect(change, lessThan(0));
+      expect(change, -15.0);
+    });
+  });
+
+  // ==================== ExamRecord 测试 ====================
+  group('ExamRecord', () {
+    test('toJson 序列化完整', () {
+      final record = ExamRecord(
+        date: '2026-06-01 14:30',
+        examType: '月考',
+        semester: '2025-2026',
+        label: '期中考试',
+        scores: {'数学': 95, '英语': 88},
+      );
+
+      final json = record.toJson();
+
+      expect(json['date'], '2026-06-01 14:30');
+      expect(json['exam_type'], '月考');
+      expect(json['semester'], '2025-2026');
+      expect(json['label'], '期中考试');
+      expect(json['scores'], {'数学': 95, '英语': 88});
+    });
+
+    test('fromJson 反序列化完整', () {
+      final json = {
+        'date': '2026-06-01 14:30',
+        'exam_type': '月考',
+        'semester': '2025-2026',
+        'label': '期中考试',
+        'scores': {'数学': 95, '英语': 88},
+      };
+
+      final record = ExamRecord.fromJson(json);
+
+      expect(record.date, '2026-06-01 14:30');
+      expect(record.examType, '月考');
+      expect(record.semester, '2025-2026');
+      expect(record.label, '期中考试');
+      expect(record.scores['数学'], 95);
+    });
+
+    test('fromJson 处理空字段', () {
+      final record = ExamRecord.fromJson({});
+
+      expect(record.date, '');
+      expect(record.examType, '日常');
+      expect(record.semester, isNull);
+      expect(record.label, isNull);
+      expect(record.scores, {});
+    });
+
+    test('fromJson 处理 null scores', () {
+      final json = {
+        'date': '2026-06-01',
+        'scores': null,
+      };
+
+      final record = ExamRecord.fromJson(json);
+
+      expect(record.date, '2026-06-01');
+      expect(record.scores, {});
+    });
+
+    test('toJson / fromJson 往返', () {
+      final original = ExamRecord(
+        date: '2026-06-01 14:30',
+        examType: 'exam',
+        semester: '2025-2026',
+        label: '期末考试',
+        scores: {'语文': 90, '数学': 85, '英语': 88},
+      );
+
+      final json = original.toJson();
+      final restored = ExamRecord.fromJson(json);
+
+      expect(restored.date, original.date);
+      expect(restored.examType, original.examType);
+      expect(restored.semester, original.semester);
+      expect(restored.label, original.label);
+      expect(restored.scores.length, original.scores.length);
+    });
+
+    test('支持不同考试类型', () {
+      for (final type in ['exam', 'quiz', 'mock', '日常']) {
+        final record = ExamRecord(
+          date: '2026-06-01',
+          examType: type,
+          scores: {'数学': 90},
+        );
+        expect(record.examType, type);
+        final json = record.toJson();
+        final restored = ExamRecord.fromJson(json);
+        expect(restored.examType, type);
+      }
+    });
+  });
+
+  // ==================== WebSearchConfig 测试 ====================
+  group('WebSearchConfig', () {
+    test('toJson 序列化', () {
+      final config = WebSearchConfig(
+        enabled: true,
+        baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        apiKey: 'sk-test-key',
+        model: 'qwen3.5-flash',
+      );
+
+      final json = config.toJson();
+
+      expect(json['enabled'], true);
+      expect(json['base_url'], 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+      expect(json['api_key'], 'sk-test-key');
+      expect(json['model'], 'qwen3.5-flash');
+    });
+
+    test('fromJson 反序列化', () {
+      final json = {
+        'enabled': true,
+        'base_url': 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        'api_key': 'sk-test-key',
+        'model': 'qwen3.5-flash',
+      };
+
+      final config = WebSearchConfig.fromJson(json);
+
+      expect(config.enabled, true);
+      expect(config.baseUrl, 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+      expect(config.apiKey, 'sk-test-key');
+      expect(config.model, 'qwen3.5-flash');
+    });
+
+    test('fromJson 处理空字段', () {
+      final config = WebSearchConfig.fromJson({});
+
+      expect(config.enabled, false);
+      expect(config.baseUrl, 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+      expect(config.apiKey, '');
+      expect(config.model, 'qwen3.5-flash');
+    });
+
+    test('toJson / fromJson 往返', () {
+      final original = WebSearchConfig(
+        enabled: true,
+        baseUrl: 'https://custom.api.com/v1',
+        apiKey: 'sk-custom',
+        model: 'custom-model',
+      );
+
+      final json = original.toJson();
+      final restored = WebSearchConfig.fromJson(json);
+
+      expect(restored.enabled, original.enabled);
+      expect(restored.baseUrl, original.baseUrl);
+      expect(restored.apiKey, original.apiKey);
+      expect(restored.model, original.model);
+    });
+
+    test('copyWith 部分更新', () {
+      final original = WebSearchConfig(
+        enabled: false,
+        baseUrl: 'https://default.com',
+        apiKey: '',
+        model: 'default',
+      );
+
+      final updated = original.copyWith(enabled: true, apiKey: 'sk-new');
+
+      expect(updated.enabled, true);
+      expect(updated.apiKey, 'sk-new');
+      expect(updated.baseUrl, 'https://default.com');
+      expect(updated.model, 'default');
+    });
+
+    test('copyWith 全量更新', () {
+      final original = const WebSearchConfig();
+      final updated = original.copyWith(
+        enabled: true,
+        baseUrl: 'https://new.com',
+        apiKey: 'sk-new',
+        model: 'new-model',
+      );
+
+      expect(updated.enabled, true);
+      expect(updated.baseUrl, 'https://new.com');
+      expect(updated.apiKey, 'sk-new');
+      expect(updated.model, 'new-model');
+    });
+  });
 }

@@ -30,6 +30,7 @@ void main() async {
 
   Dio? dio;
   bool showWelcome = false;
+  bool showTour = false;
   bool useDirectApi = false;
   String? directBaseUrl;
   String? directApiKey;
@@ -63,50 +64,58 @@ void main() async {
     if (enabledAi == null || enabledAi.apiKey.isEmpty) {
       debugPrint('>>> AI 配置为空，跳转欢迎页');
       showWelcome = true;
-    } else if (Platform.isAndroid) {
-      // 📱 Android 手机端：不启动本地后端，直连 AI API
-      debugPrint('>>> Android 模式：使用直连 AI API');
-      useDirectApi = true;
-      directBaseUrl = enabledAi.baseUrl;
-      directApiKey = enabledAi.apiKey;
-      directModel = enabledAi.model;
-
-      // 创建一个指向 AI API 的 Dio（用于成绩查询等需要后端的功能，暂时不可用）
-      dio = Dio(
-        BaseOptions(
-          baseUrl: enabledAi.baseUrl,
-          headers: {"Authorization": "Bearer ${enabledAi.apiKey}"},
-          connectTimeout: const Duration(seconds: 30),
-          receiveTimeout: const Duration(seconds: 120),
-        ),
-      );
-      debugPrint('>>> 已进入 Android 直连模式');
     } else {
-      // 启动后端并等待就绪
-      debugPrint('>>> 正在启动后端 (端口: $port)...');
-      bool backendReady = await startBackend(port);
+      // 已具备完整配置，检测是否需要显示功能引导
+      if (config['FEATURE_TOUR_COMPLETED'] != true) {
+        showTour = true;
+        debugPrint('>>> 首次配置完成，将显示功能引导');
+      }
 
-      if (backendReady) {
-        final baseUrl = "http://127.0.0.1:$port";
+      if (Platform.isAndroid) {
+        // 📱 Android 手机端：不启动本地后端，直连 AI API
+        debugPrint('>>> Android 模式：使用直连 AI API');
+        useDirectApi = true;
+        directBaseUrl = enabledAi.baseUrl;
+        directApiKey = enabledAi.apiKey;
+        directModel = enabledAi.model;
+
+        // 创建一个指向 AI API 的 Dio（用于成绩查询等需要后端的功能，暂时不可用）
         dio = Dio(
           BaseOptions(
-            baseUrl: baseUrl,
+            baseUrl: enabledAi.baseUrl,
             headers: {"Authorization": "Bearer ${enabledAi.apiKey}"},
             connectTimeout: const Duration(seconds: 30),
-            receiveTimeout: const Duration(seconds: 60),
+            receiveTimeout: const Duration(seconds: 120),
           ),
         );
-
-        // 强制直连
-        (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
-          final client = HttpClient();
-          client.findProxy = (uri) => "DIRECT";
-          return client;
-        };
-        debugPrint('>>> 后端已就绪，进入主页面');
+        debugPrint('>>> 已进入 Android 直连模式');
       } else {
-        debugPrint('>>> 后端启动失败，跳转欢迎页');
-        showWelcome = true;
+        // 启动后端并等待就绪
+        debugPrint('>>> 正在启动后端 (端口: $port)...');
+        bool backendReady = await startBackend(port);
+
+        if (backendReady) {
+          final baseUrl = "http://127.0.0.1:$port";
+          dio = Dio(
+            BaseOptions(
+              baseUrl: baseUrl,
+              headers: {"Authorization": "Bearer ${enabledAi.apiKey}"},
+              connectTimeout: const Duration(seconds: 30),
+              receiveTimeout: const Duration(seconds: 60),
+            ),
+          );
+
+          // 强制直连
+          (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+            final client = HttpClient();
+            client.findProxy = (uri) => "DIRECT";
+            return client;
+          };
+          debugPrint('>>> 后端已就绪，进入主页面');
+        } else {
+          debugPrint('>>> 后端启动失败，跳转欢迎页');
+          showWelcome = true;
+        }
       }
     }
   }
@@ -133,6 +142,7 @@ void main() async {
         return MyApp(
           initialDio: dio,
           showWelcome: showWelcome,
+          showTour: showTour,
           useDirectApi: useDirectApi,
           directBaseUrl: directBaseUrl,
           directApiKey: directApiKey,
@@ -147,6 +157,7 @@ void main() async {
 class MyApp extends StatelessWidget {
   final Dio? initialDio;
   final bool showWelcome;
+  final bool showTour;
   final bool useDirectApi;
   final String? directBaseUrl;
   final String? directApiKey;
@@ -156,6 +167,7 @@ class MyApp extends StatelessWidget {
     super.key,
     this.initialDio,
     required this.showWelcome,
+    this.showTour = false,
     this.useDirectApi = false,
     this.directBaseUrl,
     this.directApiKey,
@@ -198,6 +210,7 @@ class MyApp extends StatelessWidget {
               directBaseUrl: directBaseUrl,
               directApiKey: directApiKey,
               directModel: directModel,
+              showTour: showTour,
             ),
     );
   }

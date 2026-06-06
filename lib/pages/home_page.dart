@@ -20,6 +20,7 @@ import 'package:ai_agent/services/study_analysis_service.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:ai_agent/pages/feature_tour.dart';
 
 class MyHomePage extends StatefulWidget {
   const MyHomePage({
@@ -29,12 +30,14 @@ class MyHomePage extends StatefulWidget {
     this.directBaseUrl,
     this.directApiKey,
     this.directModel,
+    this.showTour = false,
   });
   final Dio dio;
   final bool useDirectApi;
   final String? directBaseUrl;
   final String? directApiKey;
   final String? directModel;
+  final bool showTour;
 
   @override
   State<MyHomePage> createState() => _MyHomePageState();
@@ -52,10 +55,25 @@ class _MyHomePageState extends State<MyHomePage> {
 
   final List<String> pageTitles = ["AI聊天", "我的成绩", "日程安排", "每日学情"];
 
+  /// 已展示过 Tooltip 的 tab 索引集合
+  final Set<int> _tooltipShown = {};
+
+  static const List<String> _tabTooltips = [
+    '💡 你可以点击 + 号新建对话，或添加文件/图片进行 OCR 识别',
+    '💡 输入学号查询成绩，使用底部 Tab 可新增或修改成绩',
+    '💡 支持 Markdown 编辑日程，也可用 AI 一键生成',
+    '💡 选择日期范围，自动匹配学习关键词并计算每日评分',
+  ];
+
   @override
   void initState() {
     super.initState();
     _loadUserInfo();
+    if (widget.showTour) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) FeatureTour.show(context, onCompleted: _onTourCompleted);
+      });
+    }
   }
 
   Future<void> _loadUserInfo() async {
@@ -104,6 +122,33 @@ class _MyHomePageState extends State<MyHomePage> {
       _displayedIndex = index;
       selectedIndex = index;
     });
+    // 首次切换 tab 时显示 Tooltip
+    _showTabTooltip(index);
+  }
+
+  void _showTabTooltip(int index) {
+    if (_tooltipShown.contains(index)) return;
+    _tooltipShown.add(index);
+    final message = _tabTooltips[index];
+    if (message.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      showTopSnackBar(context, message, bottomMargin: 82);
+    });
+  }
+
+  /// 从设置页面重新触发 Tour
+  void _restartTour() {
+    FeatureTour.show(context, onCompleted: _onTourCompleted);
+  }
+
+  Future<void> _onTourCompleted() async {
+    _tooltipShown.clear();
+    try {
+      final config = await loadConfigFile();
+      config['FEATURE_TOUR_COMPLETED'] = true;
+      await saveConfigFile(config);
+    } catch (_) {}
   }
 
   int _displayedIndex = 0; // AppBar实际显示的标题索引
@@ -205,7 +250,7 @@ class _MyHomePageState extends State<MyHomePage> {
               title: const Text("设置"),
               onTap: () async {
                 Navigator.pop(context); // Close drawer
-                await Navigator.push(
+                final result = await Navigator.push<bool>(
                   context,
                   MaterialPageRoute(
                     builder: (context) => SettingsPage(
@@ -216,6 +261,7 @@ class _MyHomePageState extends State<MyHomePage> {
                   ),
                 );
                 _loadUserInfo(); // 刷新用户信息
+                if (result == true) _restartTour();
               },
             ),
           ],
@@ -261,7 +307,10 @@ class _MyHomePageState extends State<MyHomePage> {
   Widget build(BuildContext context) {
     final bool isMobile = MediaQuery.of(context).size.width < 450;
 
-    return Scaffold(
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Scaffold(
       appBar: AppBar(
         title: Text(
           _displayedIndex == 0
@@ -286,7 +335,7 @@ class _MyHomePageState extends State<MyHomePage> {
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () async {
-              await Navigator.push(
+              final result = await Navigator.push<bool>(
                 context,
                 MaterialPageRoute(
                   builder: (context) => SettingsPage(
@@ -297,6 +346,7 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               );
               _loadUserInfo(); // 刷新用户信息
+              if (result == true) _restartTour();
             },
           ),
         ],
@@ -370,7 +420,7 @@ class _MyHomePageState extends State<MyHomePage> {
                           height: 66,
                           child: InkWell(
                             onTap: () async {
-                              await Navigator.push(
+                              final result = await Navigator.push<bool>(
                                 context,
                                 MaterialPageRoute(
                                   builder: (context) => SettingsPage(
@@ -381,6 +431,7 @@ class _MyHomePageState extends State<MyHomePage> {
                                 ),
                               );
                               _loadUserInfo();
+                              if (result == true) _restartTour();
                             },
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -454,6 +505,8 @@ class _MyHomePageState extends State<MyHomePage> {
           ),
         ],
       ),
+    ),
+      ],
     );
   }
 }
@@ -5099,7 +5152,7 @@ class _OcrResultDialogState extends State<_OcrResultDialog> {
   }
 
   Future<void> _onAiRetry() async {
-    showTopSnackBar(context, "正在使用 AI 重新识别...", bottomMargin: 142);
+    showOverlaySnackBar(context, "正在使用 AI 重新识别...", bottomMargin: 142);
     setState(() => _isAiLoading = true);
     final aiText = await widget.onOcrWithAi(widget.imageBase64);
     if (mounted) {

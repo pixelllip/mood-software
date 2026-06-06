@@ -356,6 +356,7 @@ class _WelcomePageState extends State<WelcomePage> {
             directBaseUrl: enabledConfig.baseUrlController.text.trim(),
             directApiKey: apiKey,
             directModel: _selectedModel,
+            showTour: true,
           ),
         ),
       );
@@ -386,7 +387,7 @@ class _WelcomePageState extends State<WelcomePage> {
 
       if (!mounted) return;
       navigator.pushReplacement(
-        MaterialPageRoute(builder: (context) => MyHomePage(dio: dio)),
+        MaterialPageRoute(builder: (context) => MyHomePage(dio: dio, showTour: true)),
       );
     }
   }
