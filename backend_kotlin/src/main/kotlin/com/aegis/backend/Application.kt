@@ -18,6 +18,8 @@ import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.encodeToString
@@ -212,7 +214,7 @@ fun Application.module() {
             call.respond(PingResponse(status = "ok", message = "Backend is running!"))
         }
 
-        // POST /chat - 聊天接口（流式）
+        // POST /chat - 聊天接口（SSE 流式）
         post("/chat") {
             println(">>> 收到聊天请求")
             val data = try {
@@ -230,7 +232,7 @@ fun Application.module() {
 
             println(">>> 用户消息: $prompt")
 
-            // 如果传入了历史消息，加载到 backlog（不 resetPath 防止重复文件）
+            // 如果传入了历史消息，加载到 backlog
             if (data.history != null && data.history.isNotEmpty()) {
                 agent.backlog.messages.clear()
                 data.history.forEach { msg ->
@@ -242,24 +244,56 @@ fun Application.module() {
                         "system" -> agent.backlog.appendSystemText(content)
                     }
                 }
-                // 沿用已有 path，追加到同一个文件；首次对话则新建 path
                 if (!agent.backlog.hasPath) {
                     agent.backlog.resetPath()
                 }
             }
 
-            // 收集完整回复后一次性返回（先确保存档功能正常）
             println(">>> 正在调用 AI ...")
-            val reply = StringBuilder()
-            agent.streamChat(prompt) { chunk ->
-                reply.append(chunk)
+
+            // 使用 respondTextWriter 实现 SSE 流式输出
+            call.respondTextWriter(
+                contentType = ContentType.Text.EventStream,
+                status = HttpStatusCode.OK
+            ) {
+                // streamChat 内部使用阻塞 OkHttp，需切到 IO 线程
+                withContext(Dispatchers.IO) {
+                    agent.streamChat(
+                        prompt,
+                        onChunk = { chunk ->
+                            // 普通内容：data: {"c": "文本块"}
+                            val escaped = chunk
+                                .replace("\\", "\\\\")
+                                .replace("\"", "\\\"")
+                                .replace("\n", "\\n")
+                                .replace("\r", "\\r")
+                                .replace("\t", "\\t")
+                            write("data: {\"c\":\"$escaped\"}")
+                            write("\n\n")
+                            flush()
+                        },
+                        onReasoning = { reasoning ->
+                            // 思考过程：data: {"r": "思考文本"}
+                            val escaped = reasoning
+                                .replace("\\", "\\\\")
+                                .replace("\"", "\\\"")
+                                .replace("\n", "\\n")
+                                .replace("\r", "\\r")
+                                .replace("\t", "\\t")
+                            write("data: {\"r\":\"$escaped\"}")
+                            write("\n\n")
+                            flush()
+                        },
+                    )
+                }
+                // 发送结束标记
+                write("data: [DONE]")
+                write("\n\n")
+                flush()
             }
-            val replyText = reply.toString()
-            println(">>> AI 回复完成 (${replyText.length} 字符)")
-            call.respondText(
-                text = replyText,
-                contentType = ContentType.Text.Plain.withCharset(Charsets.UTF_8)
-            )
+
+            // streamChat 内部已存档，此处不再重复存档
+            println(">>> SSE 流式响应完成")
         }
 
         // GET /query - 查询成绩

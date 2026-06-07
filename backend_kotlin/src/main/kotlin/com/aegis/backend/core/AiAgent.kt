@@ -82,7 +82,11 @@ class AiAgent {
     /**
      * 流式聊天 - 通过回调返回块
      */
-    fun streamChat(userInput: String, onChunk: (String) -> Unit): String {
+    fun streamChat(
+        userInput: String,
+        onChunk: (String) -> Unit,
+        onReasoning: ((String) -> Unit)? = null,
+    ): String {
         println(">>> streamChat 开始, 用户输入: ${userInput.take(50)}")
         // 防重复调用
         if (!_chatting.compareAndSet(false, true)) {
@@ -147,6 +151,12 @@ class AiAgent {
                         if (content.isNotBlank()) {
                             fullReply.append(content)
                             onChunk(content)
+                        }
+
+                        // 处理思考过程 (reasoning_content) — 如 DeepSeek R1 等模型会返回
+                        val reasoning = delta.optString("reasoning_content", "")
+                        if (reasoning.isNotBlank()) {
+                            onReasoning?.invoke(reasoning)
                         }
 
                         // 处理工具调用 (流式)
@@ -280,13 +290,13 @@ class AiAgent {
             put("type", "function")
             put("function", JSONObject().apply {
                 put("name", "get_weather")
-                put("description", "获取指定地区的实时天气信息")
+                put("description", "⚠️ 仅支持中国大陆城市！获取指定中国城市的实时天气信息。参数 city 填写中国城市名称（如'广州'）或城市adcode编码（如'440100'），内部会自动将城市名转为adcode。如果用户询问的是境外城市天气，请直接告知无法查询，不要调用此工具。")
                 put("parameters", JSONObject().apply {
                     put("type", "object")
                     put("properties", JSONObject().apply {
                         put("city", JSONObject().apply {
                             put("type", "string")
-                            put("description", "城市名称或中国城市编码，如'广州'或'440100'")
+                            put("description", "中国城市名称（如'汕头'）或城市adcode编码（如'440500'）。注意：仅支持中国城市，境外城市请勿调用。")
                         })
                     })
                     put("required", org.json.JSONArray(listOf("city")))
@@ -550,7 +560,14 @@ class AiAgent {
                 "get_local_backlog" -> backlog.getText().toString()
                 "get_weather" -> {
                     val city = args.optString("city", args.optString("adcode", ""))
-                    tool.getWeather(city)?.toString() ?: "获取天气失败"
+                    if (city.isBlank()) return@useTool "请提供城市名称"
+                    // 境外城市（含拉丁字母）→ 直接拒绝
+                    if (city.any { it in 'a'..'z' || it in 'A'..'Z' }) {
+                        return@useTool "无法查询「${city}」的天气：高德天气API仅支持中国大陆城市，境外城市暂不支持。请告知用户。"
+                    }
+                    // 中文城市名 → getWeather 内部会通过高德地理编码 API 自动转换为 adcode
+                    val result = tool.getWeather(city)
+                    result?.toString() ?: "获取「${city}」天气信息失败，请确认城市名称是否正确。"
                 }
                 "get_traffic" -> {
                     val origin = args.optString("origin", "")

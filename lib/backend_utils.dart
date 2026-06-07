@@ -505,12 +505,15 @@ Future<bool> _startBackendWindows(int port) async {
 
 /// 手机端直连 AI API（不经过本地后端）
 /// 调用 OpenAI 兼容的 /chat/completions 接口，流式返回文本块
+/// 返回格式：yield 普通文本内容；可通过外部分析 reasoning_content
 Stream<String> directStreamChat({
   required String baseUrl,
   required String apiKey,
   required String model,
   required List<Map<String, String>> messages,
   bool enableSearch = false,
+  /// 可选回调：收到 reasoning_content 时触发
+  void Function(String reasoning)? onReasoning,
 }) async* {
   final chatUrl = baseUrl.endsWith('/')
       ? '${baseUrl}chat/completions'
@@ -564,12 +567,25 @@ Stream<String> directStreamChat({
             final json = jsonDecode(line.substring(6)) as Map<String, dynamic>;
             final choices = json['choices'] as List<dynamic>?;
             if (choices != null && choices.isNotEmpty) {
-              final delta = choices[0] as Map<String, dynamic>;
-              final content = delta['delta'] is Map
-                  ? (delta['delta'] as Map)['content']
-                  : delta['text'];
-              if (content != null && content.toString().isNotEmpty) {
-                yield content.toString();
+              final choice = choices[0] as Map<String, dynamic>;
+              final delta = choice['delta'] as Map<String, dynamic>?;
+              if (delta != null) {
+                // 提取思考过程（DeepSeek R1 等模型支持）
+                final reasoning = delta['reasoning_content'] as String?;
+                if (reasoning != null && reasoning.isNotEmpty) {
+                  onReasoning?.call(reasoning);
+                }
+                // 提取普通文本内容
+                final content = delta['content'] as String?;
+                if (content != null && content.isNotEmpty) {
+                  yield content;
+                }
+              } else {
+                // 兼容非 delta 格式（如某些旧版 API）
+                final text = choice['text'] as String?;
+                if (text != null && text.isNotEmpty) {
+                  yield text;
+                }
               }
             }
           } catch (_) {}

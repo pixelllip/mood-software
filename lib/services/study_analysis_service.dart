@@ -5,6 +5,170 @@ import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/services/local_backend.dart';
 import 'package:dio/dio.dart';
 
+// ==================== 笔记变动通知器 ====================
+
+/// 当笔记发生增删改时通知监听者（如总结页面自动刷新）
+class NoteChangeNotifier extends ChangeNotifier {
+  static final NoteChangeNotifier _instance = NoteChangeNotifier._();
+  factory NoteChangeNotifier() => _instance;
+  NoteChangeNotifier._();
+
+  /// 公开通知方法（包装受保护的 notifyListeners）
+  void notifyOfChange() => notifyListeners();
+}
+
+// ==================== 鼓励语本地缓存 ====================
+
+/// 鼓励语缓存条目：存储某个学生全等级鼓励语的快照
+class EncouragementCacheEntry {
+  final String studentName;
+  final DateTime generatedAt;
+  /// 生成缓存时使用的笔记数，用于检测笔记数变化后需要重新生成
+  final int noteCount;
+  final Map<String, List<String>> messagesByGrade;
+
+  EncouragementCacheEntry({
+    required this.studentName,
+    required this.generatedAt,
+    required this.noteCount,
+    required this.messagesByGrade,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'student_name': studentName,
+    'generated_at': generatedAt.toIso8601String(),
+    'note_count': noteCount,
+    'messages': messagesByGrade.map((k, v) => MapEntry(k, v)),
+  };
+
+  factory EncouragementCacheEntry.fromJson(Map<String, dynamic> json) =>
+      EncouragementCacheEntry(
+        studentName: json['student_name']?.toString() ?? '',
+        generatedAt: DateTime.tryParse(json['generated_at']?.toString() ?? '') ??
+            DateTime.now(),
+        noteCount: json['note_count'] ?? 0,
+        messagesByGrade: (json['messages'] as Map<String, dynamic>?)?.map(
+              (k, v) => MapEntry(k, (v as List).map((e) => e.toString()).toList()),
+            ) ??
+            {},
+      );
+}
+
+/// 鼓励语本地缓存管理
+/// 一次性生成所有4个等级的鼓励语并存入本地文件
+/// 后续按需读取，避免每次都重新生成
+class EncouragementCache {
+  static const _fileName = 'study_encouragements.json';
+
+  static Future<File> _getFile() async {
+    final config = await loadConfigFile();
+    final basePath =
+        config['BASE_PATH']?.toString() ?? (await getProjectDirectory()).path;
+    final dir = Directory('$basePath/StudyAnalysis');
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return File('${dir.path}/$_fileName');
+  }
+
+  /// 从本地缓存加载鼓励语
+  static Future<EncouragementCacheEntry?> load() async {
+    try {
+      final file = await _getFile();
+      if (!await file.exists()) return null;
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) return null;
+      final json = jsonDecode(content) as Map<String, dynamic>;
+      return EncouragementCacheEntry.fromJson(json);
+    } catch (e) {
+      debugPrint(">>> 读取鼓励语缓存失败: $e");
+      return null;
+    }
+  }
+
+  /// 保存鼓励语缓存到本地
+  static Future<void> save(EncouragementCacheEntry entry) async {
+    try {
+      final file = await _getFile();
+      await file.writeAsString(
+        const JsonEncoder.withIndent('  ').convert(entry.toJson()),
+      );
+      debugPrint(">>> 鼓励语缓存已保存 (学生: ${entry.studentName})");
+    } catch (e) {
+      debugPrint(">>> 保存鼓励语缓存失败: $e");
+    }
+  }
+
+  /// 预生成所有4个等级的鼓励语并缓存到本地
+  /// 使用当前 actualCount（今日笔记数）生成各等级消息，
+  /// 各等级内部使用的 matchedCount 基于各自的设计：
+  ///   优秀(≥5) / 良好(3~4) / 合格(1~2) / 不合格(0)
+  static Future<void> preGenerateAll({
+    required String studentName,
+    required int actualNoteCount,
+  }) async {
+    final allMessages = <String, List<String>>{};
+    const grades = ['优秀', '良好', '合格', '不合格'];
+
+    // 每个等级使用该等级下可能的典型计数值
+    // 但鼓励语模板中用到了 matchedCount，如果全部统一用 actualNoteCount，
+    // 可能"优秀"消息里写着"提出了3个问题"（实际只有3条笔记但被评优秀）
+    // 所以为每个等级取该等级下最合理的计数值
+    final countForGrade = <String, int>{
+      '优秀': actualNoteCount >= 5 ? actualNoteCount : 5,
+      '良好': actualNoteCount >= 3 && actualNoteCount < 5
+          ? actualNoteCount
+          : 3,
+      '合格': actualNoteCount >= 1 && actualNoteCount < 3
+          ? actualNoteCount
+          : 1,
+      '不合格': 0,
+    };
+
+    for (final grade in grades) {
+      final count = countForGrade[grade]!;
+      allMessages[grade] = StudyAnalysisService.generateEncouragementList(
+        grade: grade,
+        studentName: studentName,
+        matchedCount: count,
+        completedSchedules: 0,
+        totalSchedules: 0,
+      );
+    }
+
+    final entry = EncouragementCacheEntry(
+      studentName: studentName,
+      generatedAt: DateTime.now(),
+      noteCount: actualNoteCount,
+      messagesByGrade: allMessages,
+    );
+
+    await save(entry);
+    debugPrint(">>> 已预生成全等级鼓励语并缓存 (学生: $studentName, 笔记数: $actualNoteCount)");
+  }
+
+  /// 判断缓存是否需要重新生成
+  /// 条件：无缓存 / 学生姓名变化 / 笔记数变化（导致等级可能变化）/ 缓存超过24小时
+  static Future<bool> needsRegeneration({
+    required String currentStudentName,
+    required int currentNoteCount,
+  }) async {
+    final cached = await load();
+    if (cached == null) return true;
+    if (cached.studentName != currentStudentName) return true;
+    // 笔记数变化超过阈值 → 重新生成（等级可能已改变，消息中的计数值也需要更新）
+    if ((cached.noteCount - currentNoteCount).abs() >= 1) return true;
+    // 缓存超过24小时，重新生成
+    if (DateTime.now().difference(cached.generatedAt).inHours > 24) return true;
+    return false;
+  }
+
+  /// 获取某个等级的鼓励语列表（从缓存中读取）
+  static Future<List<String>> getForGrade(String grade) async {
+    final cached = await load();
+    if (cached == null) return [];
+    return cached.messagesByGrade[grade] ?? [];
+  }
+}
+
 // ==================== 学习分析（本地直连模式） ====================
 
 /// 关键词匹配结果：一条对话记录
@@ -444,6 +608,55 @@ class StudyAnalysisService {
       case '不合格':
       default:
         return '$studentName同学，今天似乎没有留下学习记录呢😅。学习需要持之以恒，即使每天只学一点点，长期积累也会有惊人的效果。明天开始，一起加油吧！🌈';
+    }
+  }
+
+  /// 预生成多条鼓励语（每种等级3~4条），供总结界面按需切换
+  /// 返回列表，调用方可随机选一条或循环展示
+  static List<String> generateEncouragementList({
+    required String grade,
+    required String studentName,
+    required int matchedCount,
+    required int completedSchedules,
+    required int totalSchedules,
+  }) {
+    final scheduleRate = totalSchedules > 0
+        ? completedSchedules / totalSchedules
+        : 0.0;
+
+    switch (grade) {
+      case '优秀':
+        return [
+          '$studentName同学，今天你真是太棒了！🎉 提出了$matchedCount个学习问题，展现了极强的求知欲和自律能力。保持这种状态，未来可期！💪',
+          '太厉害了$studentName同学！🔥 今天的$matchedCount条学习笔记证明了你的努力。优秀不是偶然，而是每一天的坚持！🌟',
+          '为$studentName同学点赞！👍 今天的学习成果($matchedCount条笔记)令人印象深刻。你的努力正在为未来铺路，继续加油！✨',
+          if (scheduleRate >= 0.8)
+            '完美的一天！$studentName同学不仅完成了${(scheduleRate * 100).toInt()}%的日程计划，还有$matchedCount条学习笔记，堪称学习标兵！🏆'
+          else
+            '$studentName同学，$matchedCount条笔记见证了你今天的出色表现！记得整理好学习心得，温故而知新哦！📖',
+        ];
+      case '良好':
+        return [
+          '$studentName同学，今天表现不错！👍 $matchedCount条笔记体现了你的学习热情。再加把劲，明天一定能达到优秀！📈',
+          '今天的学习状态良好，$matchedCount条笔记是个不错的开始！$studentName同学，继续保持这个节奏！💪',
+          '$studentName同学，每一天的积累都很重要。$matchedCount条笔记是你今天努力的证明，明天争取更进一步！🎯',
+          '不错哦$studentName同学！$matchedCount条笔记记录了你的思考轨迹。试着回顾一下这些笔记，看看有哪些可以深入挖掘的知识点！🔍',
+        ];
+      case '合格':
+        return [
+          '$studentName同学，今天有$matchedCount条笔记记录，迈出了学习的第一步！继续坚持，会有更多收获！📚',
+          '学习不怕慢，就怕站。$studentName同学今天有$matchedCount条笔记，这就是进步！试着多问几个问题吧！🌟',
+          '有记录就有成长！$studentName同学今天的$matchedCount条笔记是好的开始，期待你更多的精彩提问！🎯',
+          '$studentName同学，每天进步一点点，积少成多力量大。$matchedCount条笔记是你今天的小成就，明天继续加油！🌈',
+        ];
+      case '不合格':
+      default:
+        return [
+          '$studentName同学，今天还没有留下学习记录呢😅。学习就像存钱，每天存一点，未来才会有惊喜！明天开始吧！🌈',
+          '今天似乎没有学习笔记哦，$studentName同学。不过没关系，每一天都是新的开始，行动起来吧！💪',
+          '$studentName同学，学习是一场马拉松，不在于一天跑多远，而在于每天都跑。明天试着记一条笔记吧！📝',
+          '零笔记的一天也是思考的一天！$studentName同学，如果还没有头绪，可以试试「自动笔记」功能来发现学习内容哦！🔍',
+        ];
     }
   }
 
@@ -1379,6 +1592,7 @@ class NoteService {
     final notes = await loadNotes();
     notes.insert(0, note);
     await _saveNotes(notes);
+    NoteChangeNotifier().notifyOfChange();
   }
 
   /// 更新笔记
@@ -1389,6 +1603,7 @@ class NoteService {
       updated.updatedAt = DateTime.now();
       notes[idx] = updated;
       await _saveNotes(notes);
+      NoteChangeNotifier().notifyOfChange();
     }
   }
 
@@ -1397,6 +1612,7 @@ class NoteService {
     final notes = await loadNotes();
     notes.removeWhere((n) => n.id == id);
     await _saveNotes(notes);
+    NoteChangeNotifier().notifyOfChange();
   }
 
   /// 按科目筛选笔记

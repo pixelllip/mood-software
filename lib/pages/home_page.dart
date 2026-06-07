@@ -1214,6 +1214,14 @@ class _HomeContentState extends State<HomeContent>
           model: model,
           messages: apiMessages,
           enableSearch: enableWebSearch,
+          onReasoning: (reasoning) {
+            if (!mounted) return;
+            setState(() {
+              final existing = _messages[aiMsgIndex]["reasoning"] as String? ?? '';
+              _messages[aiMsgIndex]["reasoning"] = existing + reasoning;
+            });
+            _scrollToBottom();
+          },
         );
 
         await for (final chunk in stream) {
@@ -1273,7 +1281,7 @@ class _HomeContentState extends State<HomeContent>
           }
         }
       } else {
-        // 💻 PC 模式：通过本地后端（附带定位信息）
+        // 💻 PC 模式：通过本地后端（附带定位信息），解析 SSE JSON 格式
         debugPrint("正在请求: ${widget.dio.options.baseUrl}/chat");
 
         // 在历史消息开头插入一条定位 system 消息，让后端 AI 知道用户所在城市
@@ -1291,17 +1299,55 @@ class _HomeContentState extends State<HomeContent>
           options: Options(responseType: ResponseType.stream),
         );
 
-        final stream = response.data.stream as Stream<Uint8List>;
+        final rawStream = response.data.stream as Stream<Uint8List>;
+        String buffer = '';
 
-        await for (final chunk in stream.cast<List<int>>().transform(
-          utf8.decoder,
-        )) {
+        await for (final raw in rawStream) {
           if (!mounted) break;
-          setState(() {
-            _messages[aiMsgIndex]["text"] =
-                (_messages[aiMsgIndex]["text"] as String) + chunk;
-          });
-          _scrollToBottom();
+          buffer += utf8.decode(raw, allowMalformed: true);
+
+          // 解析 SSE 事件行：data: {...}\n\n
+          while (true) {
+            final idx = buffer.indexOf('\n');
+            if (idx < 0) break;
+            final line = buffer.substring(0, idx).trim();
+            buffer = buffer.substring(idx + 1);
+
+            if (line.isEmpty) continue;
+            if (line == 'data: [DONE]') break;
+            if (line.startsWith('data: ')) {
+              try {
+                final jsonStr = line.substring(6);
+                final json = jsonDecode(jsonStr) as Map<String, dynamic>;
+
+                // 普通内容块：{"c": "文本"}
+                if (json.containsKey('c')) {
+                  final chunk = json['c'] as String? ?? '';
+                  if (chunk.isNotEmpty) {
+                    setState(() {
+                      _messages[aiMsgIndex]["text"] =
+                          (_messages[aiMsgIndex]["text"] as String) + chunk;
+                    });
+                    _scrollToBottom();
+                  }
+                }
+
+                // 思考过程块：{"r": "思考文本"}
+                if (json.containsKey('r')) {
+                  final reasoning = json['r'] as String? ?? '';
+                  if (reasoning.isNotEmpty) {
+                    setState(() {
+                      final existing = _messages[aiMsgIndex]["reasoning"]
+                              as String? ??
+                          '';
+                      _messages[aiMsgIndex]["reasoning"] = existing + reasoning;
+                    });
+                    _scrollToBottom();
+                  }
+                }
+              } catch (_) {}
+            }
+          }
         }
       }
     } catch (e) {
@@ -1411,6 +1457,7 @@ class _HomeContentState extends State<HomeContent>
                             final isUser = msg["isUser"] as bool;
                             final isLastAiMsg =
                                 !isUser && index == _messages.length - 1;
+                            final reasoning = msg["reasoning"] as String?;
                             return Align(
                               key: ValueKey(index),
                               alignment: isUser
@@ -1453,6 +1500,16 @@ class _HomeContentState extends State<HomeContent>
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    // 可折叠的思考过程（仅 AI 回复且含 reasoning 时显示）
+                                    if (!isUser &&
+                                        reasoning != null &&
+                                        reasoning.isNotEmpty)
+                                      _ThinkingSection(
+                                        reasoning: reasoning,
+                                        autoCollapse: (msg["text"] as String)
+                                            .isNotEmpty,
+                                      ),
+                                    // 回复文本
                                     TextSelectionTheme(
                                       data: TextSelectionThemeData(
                                         selectionColor: isDark
@@ -4835,6 +4892,117 @@ class _SpoilerWidgetState extends State<_SpoilerWidget> {
             child: widget.contentWidget,
           ),
       ],
+    );
+  }
+}
+
+/// 可折叠的思考过程组件（用于展示 AI 推理过程）
+/// 用户可点击标题展开/收起，默认收起
+class _ThinkingSection extends StatefulWidget {
+  final String reasoning;
+  /// 当 AI 已开始输出回复内容时设为 true，触发自动收起
+  final bool autoCollapse;
+  const _ThinkingSection({
+    required this.reasoning,
+    this.autoCollapse = false,
+  });
+
+  @override
+  State<_ThinkingSection> createState() => _ThinkingSectionState();
+}
+
+class _ThinkingSectionState extends State<_ThinkingSection> {
+  bool _expanded = true; // 默认展开
+
+  @override
+  void didUpdateWidget(covariant _ThinkingSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // AI 开始输出回复内容 → 自动收起思考过程
+    if (!oldWidget.autoCollapse && widget.autoCollapse && _expanded) {
+      setState(() => _expanded = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final themeColor = Theme.of(context).colorScheme.primary;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? themeColor.withValues(alpha: 0.08)
+            : Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isDark
+              ? themeColor.withValues(alpha: 0.2)
+              : Colors.grey.shade300,
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 可点击的标题栏
+          InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.psychology,
+                    size: 18,
+                    color: themeColor.withValues(alpha: 0.8),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    "思考过程",
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: themeColor.withValues(alpha: 0.8),
+                    ),
+                  ),
+                  const Spacer(),
+                  AnimatedRotation(
+                    turns: _expanded ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Icon(
+                      Icons.keyboard_arrow_down,
+                      size: 20,
+                      color: themeColor.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // 展开的思考内容
+          AnimatedCrossFade(
+            firstChild: const SizedBox.shrink(),
+            secondChild: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(10, 0, 10, 10),
+              child: Text(
+                widget.reasoning,
+                style: TextStyle(
+                  fontSize: 13,
+                  height: 1.5,
+                  color: isDark ? Colors.grey.shade400 : Colors.grey.shade600,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
+            ),
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
+          ),
+        ],
+      ),
     );
   }
 }

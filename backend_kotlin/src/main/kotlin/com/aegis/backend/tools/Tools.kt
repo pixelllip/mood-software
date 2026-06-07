@@ -30,19 +30,73 @@ class AgentTools {
     /**
      * 获取天气信息
      */
+    /**
+     * 通过高德地理编码 API 将中文地名解析为 adcode（区域编码）
+     * 支持省/市/区级单位，例如"汕头"→440500、"濠江区"→440512
+     * 高德天气 API 要求使用 adcode，不支持中文城市名直接查询
+     */
+    private fun getAdcodeByCityName(cityName: String): String? {
+        val apiKey = EnvConfig.gaodeApiKey
+        if (apiKey.isBlank()) return null
+        // 不传 city 参数，让高德自动匹配省市区各级
+        val url = "https://restapi.amap.com/v3/geocode/geo?address=$cityName&key=$apiKey"
+        return try {
+            val request = Request.Builder().url(url).get().build()
+            val response = client.newCall(request).execute()
+            val body = response.body?.string() ?: return null
+            val json = JSONObject(body)
+            if (json.optString("status") != "1") {
+                println(">>> 高德地理编码API返回失败: ${json.optString("info")} (city=$cityName)")
+                return null
+            }
+            val geocodes = json.optJSONArray("geocodes")
+            if (geocodes == null || geocodes.length() == 0) {
+                println(">>> 未找到 $cityName 的 adcode")
+                return null
+            }
+            // 取第一个匹配结果的 adcode（区域编码），支持省/市/区各级
+            val adcode = geocodes.getJSONObject(0).optString("adcode").ifBlank { null }
+            if (adcode != null) {
+                println(">>> 地理编码: 「$cityName」→ adcode=$adcode")
+            }
+            adcode
+        } catch (e: Exception) {
+            println(">>> 获取adcode失败: ${e.message}")
+            null
+        }
+    }
+
     fun getWeather(adcode: String = ""): Any? {
-        val targetCity = adcode.ifBlank { return null }
+        var targetCity = adcode.ifBlank { return null }
         val apiKey = EnvConfig.gaodeApiKey
         if (apiKey.isBlank()) {
             println("没有配置 Gaode_API_Key")
             return null
         }
+        // 如果传入了中文城市名（非纯数字），先通过地理编码转换为 adcode
+        if (targetCity.any { it in '0'..'9' }.not()) {
+            val resolved = getAdcodeByCityName(targetCity)
+            if (resolved != null) {
+                println(">>> 城市名「$targetCity」→ adcode: $resolved")
+                targetCity = resolved
+            } else {
+                println(">>> 警告：无法解析城市名「$targetCity」，直接传参尝试")
+            }
+        }
         val url = "https://restapi.amap.com/v3/weather/weatherInfo?city=$targetCity&key=$apiKey"
         return try {
             val request = Request.Builder().url(url).get().build()
             val response = client.newCall(request).execute()
-            val body = response.body?.string()
-            if (body != null) JSONObject(body).toDeepMap() else null
+            val body = response.body?.string() ?: return null
+            val json = JSONObject(body)
+            // 检查高德 API 返回状态：0=失败
+            val status = json.optString("status", "0")
+            val info = json.optString("info", "")
+            if (status != "1") {
+                println(">>> 高德天气API返回失败: $info (city=$targetCity)")
+                return null
+            }
+            json.toDeepMap()
         } catch (e: Exception) {
             println("获取天气失败: ${e.message}")
             null

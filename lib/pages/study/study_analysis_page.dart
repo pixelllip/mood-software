@@ -1144,10 +1144,23 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
   String? _encouragement;
   bool _isEncouragementLoading = false;
 
+  /// 预生成的鼓励语列表，支持按需切换
+  List<String> _encouragementList = [];
+  /// 当前展示的鼓励语索引
+  int _encouragementIndex = 0;
+
   @override
   void initState() {
     super.initState();
     _loadData();
+    // 监听笔记变动，自动刷新总结
+    NoteChangeNotifier().addListener(_onNotesChanged);
+  }
+
+  @override
+  void dispose() {
+    NoteChangeNotifier().removeListener(_onNotesChanged);
+    super.dispose();
   }
 
   @override
@@ -1157,6 +1170,11 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
     if (oldWidget.selectedDate != widget.selectedDate) {
       _loadData();
     }
+  }
+
+  /// 笔记变动回调：立即刷新总结
+  void _onNotesChanged() {
+    if (mounted) _loadData();
   }
 
   String get _dateStr =>
@@ -1212,26 +1230,75 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
     }
   }
 
+  /// 加载鼓励语：优先从本地缓存读取，缓存缺失时预生成全等级并存储
   Future<void> _loadEncouragement() async {
     setState(() => _isEncouragementLoading = true);
     try {
       final config = await loadConfigFile();
       final studentName = config['STUDENT_NAME']?.toString() ?? '同学';
-      _encouragement =
-          await StudyAnalysisService.generateEncouragementWithBackend(
-            grade: _grade,
-            studentName: studentName,
-            matchedCount: _todayNoteCount,
-            completedSchedules: 0,
-            totalSchedules: 0,
-            dio: widget.useDirectApi ? null : widget.dio,
+
+      // 1. 检查本地缓存是否需要重新生成（学生名/笔记数变化时自动重建）
+      if (await EncouragementCache.needsRegeneration(
+        currentStudentName: studentName,
+        currentNoteCount: _todayNoteCount,
+      )) {
+        // 一次性预生成所有4个等级的鼓励语并缓存
+        await EncouragementCache.preGenerateAll(
+          studentName: studentName,
+          actualNoteCount: _todayNoteCount,
+        );
+      } else {
+        debugPrint(">>> 鼓励语缓存命中，跳过生成");
+      }
+
+      // 2. 从本地缓存读取当前等级的鼓励语列表
+      _encouragementList = await EncouragementCache.getForGrade(_grade);
+
+      // 3. 尝试后端获取单条鼓励语作为补充（如有），插入到第一条
+      if (widget.dio != null && !widget.useDirectApi) {
+        try {
+          final response = await widget.dio!.post(
+            "/api/study/encouragement",
+            data: {
+              "grade": _grade,
+              "student_name": studentName,
+              "matched_count": _todayNoteCount,
+              "completed_schedules": 0,
+              "total_schedules": 0,
+            },
           );
+          final data = response.data as Map<String, dynamic>;
+          final backendMsg = data['encouragement']?.toString();
+          if (backendMsg != null && backendMsg.isNotEmpty) {
+            _encouragementList.insert(0, backendMsg);
+          }
+        } catch (_) {
+          debugPrint(">>> 后端鼓励语不可用，使用本地缓存");
+        }
+      }
+
+      // 4. 随机选一条起始展示
+      if (_encouragementList.isNotEmpty) {
+        _encouragementIndex =
+            DateTime.now().millisecondsSinceEpoch % _encouragementList.length;
+        _encouragement = _encouragementList[_encouragementIndex];
+      }
+
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint(">>> 加载鼓励语失败: $e");
     } finally {
       if (mounted) setState(() => _isEncouragementLoading = false);
     }
+  }
+
+  /// 点击鼓励语卡片切换到下一条（按需切换）
+  void _nextEncouragement() {
+    if (_encouragementList.length <= 1) return;
+    setState(() {
+      _encouragementIndex = (_encouragementIndex + 1) % _encouragementList.length;
+      _encouragement = _encouragementList[_encouragementIndex];
+    });
   }
 
   @override
@@ -1407,6 +1474,7 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
     Color themeColor,
     Color gradeColor,
   ) {
+    final hasMultiple = _encouragementList.length > 1;
     return Card(
       elevation: 0,
       shape: RoundedRectangleBorder(
@@ -1421,43 +1489,84 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
       color: isDark
           ? gradeColor.withValues(alpha: 0.12)
           : gradeColor.withValues(alpha: 0.07),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 4,
-              height: 48,
-              decoration: BoxDecoration(
-                color: gradeColor,
-                borderRadius: BorderRadius.circular(2),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: hasMultiple ? _nextEncouragement : null,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 4,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      color: gradeColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Icon(
+                    _grade == '优秀'
+                        ? Icons.emoji_events
+                        : _grade == '良好'
+                        ? Icons.thumb_up
+                        : _grade == '合格'
+                        ? Icons.check_circle
+                        : Icons.rocket_launch,
+                    color: gradeColor,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      _encouragement!,
+                      style: TextStyle(
+                        fontSize: 14,
+                        height: 1.6,
+                        color: isDark ? Colors.white : Colors.black87,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            const SizedBox(width: 12),
-            Icon(
-              _grade == '优秀'
-                  ? Icons.emoji_events
-                  : _grade == '良好'
-                  ? Icons.thumb_up
-                  : _grade == '合格'
-                  ? Icons.check_circle
-                  : Icons.rocket_launch,
-              color: gradeColor,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                _encouragement!,
-                style: TextStyle(
-                  fontSize: 14,
-                  height: 1.6,
-                  color: isDark ? Colors.white : Colors.black87,
+              // 鼓励语切换指示器
+              if (hasMultiple) ...[
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    ...List.generate(_encouragementList.length, (i) {
+                      final isActive = i == _encouragementIndex;
+                      return AnimatedContainer(
+                        duration: const Duration(milliseconds: 250),
+                        margin: const EdgeInsets.symmetric(horizontal: 3),
+                        width: isActive ? 20 : 6,
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? gradeColor
+                              : gradeColor.withValues(alpha: 0.3),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      );
+                    }),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${_encouragementIndex + 1}/${_encouragementList.length}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: gradeColor.withValues(alpha: 0.7),
+                      ),
+                    ),
+                  ],
                 ),
-              ),
-            ),
-          ],
+              ],
+            ],
+          ),
         ),
       ),
     );
@@ -1716,13 +1825,12 @@ class _StudyNotesTabState extends State<_StudyNotesTab> {
             children: [
               // 科目筛选
               if (_subjects.isNotEmpty)
-                Container(
-                  constraints: const BoxConstraints(maxWidth: 120),
+                Flexible(
                   child: DropdownButtonFormField<String>(
                     initialValue: _selectedSubject,
                     decoration: const InputDecoration(
                       contentPadding: EdgeInsets.symmetric(
-                        horizontal: 10,
+                        horizontal: 8,
                         vertical: 8,
                       ),
                       border: OutlineInputBorder(),
