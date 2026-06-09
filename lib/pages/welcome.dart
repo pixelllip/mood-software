@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'home_page.dart';
@@ -335,9 +336,9 @@ class _WelcomePageState extends State<WelcomePage> {
     final enabledConfig = _aiConfigs[_selectedAiIndex];
     final apiKey = enabledConfig.apiKeyController.text.trim();
 
-    if (Platform.isAndroid) {
-      // 📱 Android 手机端：不启动本地后端，直连 AI API
-      debugPrint(">>> 欢迎页 - Android 模式：跳过后端，使用直连 AI API");
+    if (Platform.isAndroid || Platform.isIOS) {
+      // 📱 手机端：不启动本地后端，直连 AI API
+      debugPrint(">>> 欢迎页 - 手机端模式：跳过后端，使用直连 AI API");
       final dio = Dio(
         BaseOptions(
           baseUrl: enabledConfig.baseUrlController.text.trim(),
@@ -346,6 +347,13 @@ class _WelcomePageState extends State<WelcomePage> {
           receiveTimeout: const Duration(seconds: 120),
         ),
       );
+
+      // 强制直连，避免系统代理干扰
+      (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        client.findProxy = (uri) => "DIRECT";
+        return client;
+      };
 
       if (!mounted) return;
       navigator.pushReplacement(
@@ -384,6 +392,13 @@ class _WelcomePageState extends State<WelcomePage> {
           receiveTimeout: const Duration(seconds: 60),
         ),
       );
+
+      // 强制直连，避免系统代理干扰本地后端通信
+      (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+        final client = HttpClient();
+        client.findProxy = (uri) => "DIRECT";
+        return client;
+      };
 
       if (!mounted) return;
       navigator.pushReplacement(

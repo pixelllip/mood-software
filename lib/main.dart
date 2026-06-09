@@ -71,15 +71,15 @@ void main() async {
         debugPrint('>>> 首次配置完成，将显示功能引导');
       }
 
-      if (Platform.isAndroid) {
-        // 📱 Android 手机端：不启动本地后端，直连 AI API
-        debugPrint('>>> Android 模式：使用直连 AI API');
+      if (Platform.isAndroid || Platform.isIOS) {
+        // 📱 手机端：不启动本地后端，直连 AI API
+        debugPrint('>>> 手机端模式：使用直连 AI API');
         useDirectApi = true;
         directBaseUrl = enabledAi.baseUrl;
         directApiKey = enabledAi.apiKey;
         directModel = enabledAi.model;
 
-        // 创建一个指向 AI API 的 Dio（用于成绩查询等需要后端的功能，暂时不可用）
+        // 创建一个指向 AI API 的 Dio（用于成绩查询等功能）
         dio = Dio(
           BaseOptions(
             baseUrl: enabledAi.baseUrl,
@@ -88,7 +88,13 @@ void main() async {
             receiveTimeout: const Duration(seconds: 120),
           ),
         );
-        debugPrint('>>> 已进入 Android 直连模式');
+        // 强制直连，避免系统代理干扰
+        (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+          final client = HttpClient();
+          client.findProxy = (uri) => "DIRECT";
+          return client;
+        };
+        debugPrint('>>> 已进入手机端直连模式');
       } else {
         // 启动后端并等待就绪
         debugPrint('>>> 正在启动后端 (端口: $port)...');

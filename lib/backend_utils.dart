@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'package:dio/io.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/widget_previews.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -254,6 +255,8 @@ Future<Directory> getProjectDirectory() async {
 Future<bool> startBackend(int port) async {
   if (Platform.isWindows) {
     return _startBackendWindows(port);
+  } else if (Platform.isMacOS) {
+    return _startBackendMacOS(port);
   } else if (Platform.isAndroid) {
     try {
       const channel = MethodChannel('com.academic.aegis/backend');
@@ -265,18 +268,101 @@ Future<bool> startBackend(int port) async {
       return false;
     }
   }
+  debugPrint("⚠️ 当前平台不支持自动启动后端");
   return true;
 }
 
 /// 检查 JDK 是否可用（桌面端启动后端前调用）
+///
+/// macOS GUI 应用不会继承 shell 的 PATH，因此不能仅依赖 `java -version`。
+/// 会通过以下顺序查找：
+/// 1. 直接尝试 `java -version`（如果 PATH 已配置则命中）
+/// 2. macOS: 使用 `/usr/libexec/java_home` 定位 JDK
+/// 3. macOS: 扫描常见 JDK 安装目录
 Future<bool> checkJdkAvailable() async {
+  // 1) 快速路径：java 已在 PATH 中
   try {
     final result = await Process.run('java', ['-version'], runInShell: true);
-    return result.exitCode == 0;
-  } catch (e) {
-    debugPrint(">>> JDK 检查失败: $e");
-    return false;
+    if (result.exitCode == 0) {
+      debugPrint(">>> JDK 检测通过 (PATH)");
+      return true;
+    }
+  } catch (_) {
+    // 继续尝试其他方式
   }
+
+  // 2) macOS: 使用 /usr/libexec/java_home 定位 JDK
+  if (Platform.isMacOS) {
+    final javaBin = await _findJavaOnMacOS();
+    if (javaBin != null) {
+      try {
+        final result = await Process.run(javaBin, ['-version'], runInShell: false);
+        if (result.exitCode == 0) {
+          debugPrint(">>> JDK 检测通过 (macOS 扫描): $javaBin");
+          return true;
+        }
+      } catch (_) {}
+    }
+  }
+
+  debugPrint(">>> JDK 检查失败: 未找到可用的 Java 环境");
+  return false;
+}
+
+/// macOS 上通过多种方式定位 java 可执行文件
+Future<String?> _findJavaOnMacOS() async {
+  // 方式 A: /usr/libexec/java_home（macOS 官方工具）
+  try {
+    final result = await Process.run(
+      '/usr/libexec/java_home',
+      ['-v', '26'],
+      runInShell: false,
+    );
+    if (result.exitCode == 0) {
+      final home = result.stdout.toString().trim();
+      if (home.isNotEmpty) {
+        final javaPath = '$home/bin/java';
+        if (await File(javaPath).exists()) return javaPath;
+      }
+    }
+  } catch (_) {}
+
+  // 方式 B: java_home 不指定版本（回退）
+  try {
+    final result = await Process.run(
+      '/usr/libexec/java_home',
+      [],
+      runInShell: false,
+    );
+    if (result.exitCode == 0) {
+      final home = result.stdout.toString().trim();
+      if (home.isNotEmpty) {
+        final javaPath = '$home/bin/java';
+        if (await File(javaPath).exists()) return javaPath;
+      }
+    }
+  } catch (_) {}
+
+  // 方式 C: 扫描常见 JDK 安装目录
+  final searchDirs = [
+    '${Platform.environment['HOME']}/Library/Java/JavaVirtualMachines',
+    '/Library/Java/JavaVirtualMachines',
+    '/System/Library/Java/JavaVirtualMachines',
+  ];
+  for (final baseDir in searchDirs) {
+    final dir = Directory(baseDir);
+    if (!await dir.exists()) continue;
+    try {
+      await for (final entity in dir.list()) {
+        if (entity is Directory) {
+          final javaPath = '${entity.path}/Contents/Home/bin/java';
+          if (await File(javaPath).exists()) return javaPath;
+        }
+      }
+    } catch (_) {}
+  }
+
+  return null;
 }
 
 /// 显示 JDK 缺失警告弹窗并退出应用
@@ -347,6 +433,196 @@ class _JdkWarningScreenState extends State<_JdkWarningScreen> {
   Widget build(BuildContext context) {
     return const Scaffold(body: Center(child: CircularProgressIndicator()));
   }
+}
+
+/// macOS 上启动 Kotlin 后端（优先使用 JAR，否则 Gradle 编译+运行）
+Future<bool> _startBackendMacOS(int port) async {
+  try {
+    // 定位 JDK 中的 java 可执行文件（GUI 应用 PATH 中可能没有）
+    final javaBin = await _findJavaOnMacOS();
+    if (javaBin == null) {
+      debugPrint("❌ macOS 后端启动失败：未找到 JDK");
+      return false;
+    }
+    debugPrint(">>> 使用 JDK: $javaBin");
+
+    // 先释放被占用的端口
+    try {
+      final result = await Process.run('lsof', [
+        '-ti',
+        ':$port',
+      ], runInShell: false);
+      if (result.exitCode == 0) {
+        final pids = result.stdout.toString().trim().split('\n');
+        for (final pid in pids) {
+          final trimmed = pid.trim();
+          if (trimmed.isNotEmpty) {
+            await Process.run('kill', ['-9', trimmed], runInShell: false);
+            debugPrint(">>> 已释放端口 $port (进程 PID: $trimmed)");
+          }
+        }
+      }
+    } catch (_) {
+      // 不阻塞启动流程
+    }
+
+    // 查找项目根目录（从可执行文件向上搜索 pubspec.yaml）
+    final exeDir = File(Platform.resolvedExecutable).parent.path;
+    debugPrint("--- [_startBackendMacOS] exeDir: $exeDir ---");
+
+    final projectRoot = await _findProjectRoot(exeDir);
+    debugPrint("--- [_startBackendMacOS] projectRoot: $projectRoot ---");
+
+    String jarPath = '';
+
+    // 搜索 JAR：项目根目录 > 可执行文件附近 > 常见构建输出位置
+    final jarCandidates = <String>[];
+    if (projectRoot != null) {
+      jarCandidates.add('$projectRoot/backend_kotlin/build/libs/ai_agent_backend.jar');
+    }
+    // 从 exeDir 向上搜索到包含 pubspec.yaml 的目录（回退方案）
+    jarCandidates.addAll(_buildRelativeJarPaths(exeDir));
+
+    for (final candidate in jarCandidates) {
+      if (candidate.isEmpty) continue;
+      final f = File(candidate);
+      debugPrint("--- 检查 JAR 候选: $candidate (${await f.exists()})");
+      if (await f.exists()) {
+        jarPath = f.path;
+        debugPrint("--- 使用 JAR: $jarPath ---");
+        break;
+      }
+    }
+
+    String launchCmd;
+    List<String> launchArgs;
+
+    if (jarPath.isNotEmpty && await File(jarPath).exists()) {
+      // 🚀 优先使用已编译的 Fat JAR（启动快）
+      debugPrint("--- 使用 JAR 启动后端 (端口: $port) ---");
+      launchCmd = javaBin;
+      launchArgs = ['-Dfile.encoding=UTF-8', '-jar', jarPath, '--port=$port'];
+    } else {
+      // ⏳ 没有 JAR，尝试用 Gradle 编译+运行
+      String? gradlewPath;
+      if (projectRoot != null) {
+        final gwPath = '$projectRoot/backend_kotlin/gradlew';
+        if (await File(gwPath).exists()) gradlewPath = gwPath;
+      }
+      if (gradlewPath == null) {
+        debugPrint("❌ 未找到后端构建文件 (JAR / gradlew)");
+        debugPrint("💡 提示: 在项目根目录运行 ./gradlew buildFatJar 编译后端 JAR");
+        return false;
+      }
+
+      debugPrint("--- 未找到 JAR，正在用 Gradle 编译 (端口: $port) ---");
+      debugPrint("首次编译可能需要 1-2 分钟...");
+      await Process.run('chmod', ['+x', gradlewPath], runInShell: false);
+      final buildResult = await Process.run(
+        gradlewPath,
+        ['-p', 'backend_kotlin', 'buildFatJar'],
+        runInShell: true,
+      );
+      if (buildResult.exitCode != 0) {
+        debugPrint("⚠️ Gradle 编译失败，回退到 gradlew run...");
+        launchCmd = gradlewPath;
+        launchArgs = ['-p', 'backend_kotlin', 'run'];
+      } else {
+        debugPrint("✅ JAR 编译成功，正在启动...");
+        final compiledJar = '$projectRoot/backend_kotlin/build/libs/ai_agent_backend.jar';
+        if (await File(compiledJar).exists()) {
+          jarPath = compiledJar;
+          launchCmd = javaBin;
+          launchArgs = ['-Dfile.encoding=UTF-8', '-jar', jarPath, '--port=$port'];
+        } else {
+          launchCmd = gradlewPath;
+          launchArgs = ['-p', 'backend_kotlin', 'run'];
+        }
+      }
+    }
+
+    // 启动后端进程
+    debugPrint(">>> 启动命令: $launchCmd ${launchArgs.join(' ')}");
+    final process = await Process.start(
+      launchCmd,
+      launchArgs,
+      runInShell: true,
+    );
+
+    _safeDecode(process.stdout).listen((data) {
+      debugPrint("[后端输出]: $data");
+    });
+
+    _safeDecode(process.stderr).listen((data) {
+      debugPrint("[后端错误]: $data");
+    });
+
+    // 💡 循环检查后端是否就绪 (最多等待 60 秒)
+    final pingDio = Dio(
+      BaseOptions(
+        connectTimeout: const Duration(seconds: 1),
+        receiveTimeout: const Duration(seconds: 1),
+      ),
+    );
+    bool ready = false;
+    for (int i = 0; i < 30; i++) {
+      await Future.delayed(const Duration(seconds: 2));
+      try {
+        final response = await pingDio.get("http://127.0.0.1:$port/ping");
+        if (response.statusCode == 200) {
+          ready = true;
+          break;
+        }
+      } catch (e) {
+        debugPrint("⏳ 等待后端就绪 (${(i + 1) * 2}s)...");
+      }
+    }
+    if (ready) {
+      debugPrint("✅ 后端已就绪！");
+      return true;
+    }
+    debugPrint("⚠️ 后端启动超时 (端口: $port)，请检查控制台错误信息。");
+    return false;
+  } catch (e) {
+    debugPrint("❌ 启动后端异常: $e");
+    return false;
+  }
+}
+
+/// 从 [startDir] 向上搜索，直到找到包含 pubspec.yaml 的 Flutter 项目根目录
+Future<String?> _findProjectRoot(String startDir) async {
+  var dir = Directory(startDir);
+  for (int i = 0; i < 12; i++) {
+    // 最多向上搜索 12 层（足够覆盖 .app bundle 的深层嵌套）
+    final pubspec = File('${dir.path}/pubspec.yaml');
+    if (await pubspec.exists()) {
+      return dir.path;
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break; // 到达文件系统根目录
+    dir = parent;
+  }
+  // 回退：如果 Directory.current 包含 pubspec.yaml，使用它
+  final currentPubspec = File('${Directory.current.path}/pubspec.yaml');
+  if (await currentPubspec.exists()) {
+    return Directory.current.path;
+  }
+  return null;
+}
+
+/// 从可执行文件目录向上构建可能的 JAR 路径
+List<String> _buildRelativeJarPaths(String exeDir) {
+  final paths = <String>[];
+  // 从 exeDir 向上最多 10 层，每层都尝试 backend_kotlin/build/libs/
+  var dir = exeDir;
+  for (int i = 0; i < 10; i++) {
+    paths.add('$dir/backend_kotlin/build/libs/ai_agent_backend.jar');
+    paths.add('$dir/backend/ai_agent_backend.jar');
+    final parent = Directory(dir).parent.path;
+    if (parent == dir) break;
+    dir = parent;
+  }
+  return paths;
 }
 
 /// Windows 上启动 Kotlin 后端（优先使用 JAR，否则 Gradle 编译+运行）
@@ -525,6 +801,12 @@ Stream<String> directStreamChat({
       receiveTimeout: const Duration(seconds: 120),
     ),
   );
+  // 强制直连，避免系统代理干扰
+  (dio.httpClientAdapter as IOHttpClientAdapter).createHttpClient = () {
+    final client = HttpClient();
+    client.findProxy = (uri) => "DIRECT";
+    return client;
+  };
 
   try {
     final response = await dio.post(
