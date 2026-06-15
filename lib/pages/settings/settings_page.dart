@@ -1,6 +1,6 @@
-import 'dart:io';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:ai_agent/backend_utils.dart';
 import 'package:ai_agent/pages/settings/api_settings_page.dart';
@@ -78,53 +78,9 @@ class _SettingsPageState extends State<SettingsPage> {
   /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
   Future<void> _onPickFolder() async {
     if (!mounted) return;
-    final navigator = Navigator.of(context);
     try {
       final result = await getDirectoryPath();
       if (result == null || !mounted) return;
-
-      if (Platform.isAndroid) {
-        final hasPermission = await checkStoragePermission();
-        if (!hasPermission) {
-          if (!mounted) return;
-          final goToSettings = await showDialog<bool>(
-            context: navigator.context,
-            builder: (ctx) => AlertDialog(
-              title: const Text("需要存储权限"),
-              content: const Text(
-                "要在所选文件夹读写文件，需要授予「所有文件访问权限」。\n\n"
-                "点击「去授权」后将跳转到系统设置，请在权限中开启。",
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text("不授权，使用自有目录"),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text("去授权"),
-                ),
-              ],
-            ),
-          );
-
-          if (goToSettings == true) {
-            await requestStoragePermission();
-            await Future.delayed(const Duration(seconds: 1));
-            final granted = await checkStoragePermission();
-            if (!granted && mounted) {
-              showTopSnackBar(context, "权限未授予，将使用软件自有目录存储数据");
-              return;
-            }
-          } else {
-            if (mounted) {
-              showTopSnackBar(context, "将使用软件自有目录存储数据");
-            }
-            return;
-          }
-        }
-      }
-
       _basePathController.text = result;
       if (mounted) {
         showTopSnackBar(context, "已选择文件夹: $result");

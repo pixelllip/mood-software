@@ -1,8 +1,7 @@
-import 'dart:io';
+﻿import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:dio/io.dart';
-import 'package:file_selector/file_selector.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'home_page.dart';
 import 'package:ai_agent/backend_utils.dart';
@@ -836,71 +835,21 @@ class _WelcomePageState extends State<WelcomePage> {
     );
   }
 
-  /// 打开文件夹选择器 → 检查/申请权限 → 设置路径
+  /// 使用 path_provider 获取默认路径
   Future<void> _onPickFolder() async {
     if (!mounted) return;
-    final navigator = Navigator.of(context);
     try {
-      final result = await getDirectoryPath();
-      if (result == null || !mounted) return;
-
-      if (Platform.isAndroid) {
-        // Android：检查 MANAGE_EXTERNAL_STORAGE 权限
-        final hasPermission = await checkStoragePermission();
-        if (!hasPermission) {
-          if (!mounted) return;
-          // 未授权 → 弹出提示并跳转系统设置
-          final goToSettings = await showDialog<bool>(
-            context: navigator.context,
-            builder: (ctx) => AlertDialog(
-              title: const Text("需要存储权限"),
-              content: const Text(
-                "要在所选文件夹读写文件，需要授予「所有文件访问权限」。\n\n"
-                "点击「去授权」后将跳转到系统设置，请在「特殊权限」→「所有文件访问权限」中开启。",
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text("不授权，使用自有目录"),
-                ),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: const Text("去授权"),
-                ),
-              ],
-            ),
-          );
-
-          if (goToSettings == true) {
-            await requestStoragePermission();
-            // 跳转后用户可能授权也可能不授权，短暂延迟后检查
-            await Future.delayed(const Duration(seconds: 1));
-            final granted = await checkStoragePermission();
-            if (!granted && mounted) {
-              showTopSnackBar(context, "权限未授予，将使用软件自有目录存储数据");
-              return;
-            }
-          } else {
-            // 用户拒绝授权
-            if (mounted) {
-              showTopSnackBar(context, "将使用软件自有目录存储数据");
-            }
-            return;
-          }
-        }
-      }
-
-      // 权限通过或无权限要求 → 使用所选路径
+      final projectDir = await getProjectDirectory();
       setState(() {
-        _pickedBasePath = result;
+        _pickedBasePath = projectDir.path;
       });
       if (mounted) {
-        showTopSnackBar(context, "已选择文件夹: $result");
+        showTopSnackBar(context, "数据将存储到: ${projectDir.path}");
       }
     } catch (e) {
-      debugPrint("选择文件夹失败: $e");
+      debugPrint("获取目录失败: $e");
       if (mounted) {
-        showTopSnackBar(context, "选择文件夹失败: $e");
+        showTopSnackBar(context, "获取目录失败: $e");
       }
     }
   }
