@@ -6,6 +6,7 @@
 ---
 ## 如果要查看我们的工程文件，请移步AI_Agent-Multi-Platform分支。
 如要开盖即食版本可以直接下载我们最新的发行版；如有意向为我们的项目添砖加瓦，我们也准备了方便导出发行版的脚本。
+
 <https://github.com/pixelllip/mood-software/tree/AI_Agent-Multi-Platform>
 
 ---
@@ -13,6 +14,8 @@
 ## 以下是我们团队的成员介绍：
 
 #### 我是廖丞健。
+<img width="215" height="293" alt="ChatGPT Image 2026年6月15日 20_25_56" src="https://github.com/user-attachments/assets/812914d6-c748-436c-9075-28f3e6eda331" />
+
 
 |||
 |---|---|
