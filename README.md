@@ -5,8 +5,7 @@
 ![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter)
 ![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.x-7F52FF?logo=kotlin)
-![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Windows%20%7C%20iOS%20%7C%20macOS-FF6B6B)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+![平台](https://img.shields.io/badge/Platform-Android%20%7C%20Windows%20%7C%20iOS%20%7C%20macOS-FF6B6B)
 
 **AI 驱动的多平台智能学伴工具 —— 聊天 · 查成绩 · 管日程 · 学习分析 · 全能助手**
 
