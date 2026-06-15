@@ -14,7 +14,8 @@
 ## 以下是我们团队的成员介绍：
 
 #### 我是廖丞健。
-<img width="215" height="293" alt="ChatGPT Image 2026年6月15日 20_25_56" src="https://github.com/user-attachments/assets/812914d6-c748-436c-9075-28f3e6eda331" />
+<img width="215" height="293" alt="processed-image" src="https://github.com/user-attachments/assets/d96e7853-a00c-4377-a8c9-e69d1ad04d5e" />
+
 
 
 |||
