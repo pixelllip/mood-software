@@ -3,6 +3,13 @@
 
 这是我们团队的logo。由经典游戏系列doom（毁灭战士）的logo修改而来，一方面希望我们团队能够像doomguy一样一往无前，另一方面取名mood是希望我们能够照顾人的情绪，在开发软件的同时考虑人性化的方面。
 
+---
+## 如果要查看我们的工程文件，请移步AI_Agent-Multi-Platform分支。
+如要开盖即食版本可以直接下载我们最新的发行版；如有意向为我们的项目添砖加瓦，我们也准备了方便导出发行版的脚本。
+<https://github.com/pixelllip/mood-software/tree/AI_Agent-Multi-Platform>
+
+---
+
 ## 以下是我们团队的成员介绍：
 
 #### 我是廖丞健。
