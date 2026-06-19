@@ -1045,7 +1045,10 @@ class _HomeContentState extends State<HomeContent>
     _scrollToBottom();
   }
 
-  void _scrollToBottom() {
+  void _scrollToBottom({bool force = false}) {
+    // 用户已手动滚离底部且非强制滚动 → 暂停自动滚动
+    if (_userScrolledAway && !force) return;
+
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scrollController.hasClients) {
         _scrollController.animateTo(
@@ -1330,6 +1333,9 @@ class _HomeContentState extends State<HomeContent>
   /// 是否显示"滚动到底部"按钮
   bool _showScrollToBottom = false;
 
+  /// 用户是否已手动滚离底部（生成中暂停自动滚动）
+  bool _userScrolledAway = false;
+
   /// AI聊天内部 Tab 控制器（0=聊天, 1=历史）
   late final TabController _chatTabController;
 
@@ -1387,11 +1393,26 @@ class _HomeContentState extends State<HomeContent>
     if (!_scrollController.hasClients) return;
     final maxScroll = _scrollController.position.maxScrollExtent;
     final currentScroll = _scrollController.position.pixels;
-    // 距离底部超过100px时显示按钮
-    final shouldShow = maxScroll - currentScroll > 100;
-    if (shouldShow != _showScrollToBottom) {
+    final awayFromBottom = maxScroll - currentScroll > 100;
+
+    // 更新"返回底部"按钮显隐
+    if (awayFromBottom != _showScrollToBottom) {
       setState(() {
-        _showScrollToBottom = shouldShow;
+        _showScrollToBottom = awayFromBottom;
+      });
+    }
+
+    // 用户手动滚离底部时标记暂停自动滚动（仅在生成中有效）
+    if (awayFromBottom && !_userScrolledAway) {
+      setState(() {
+        _userScrolledAway = true;
+      });
+    }
+
+    // 用户手动滚回底部时恢复自动滚动
+    if (!awayFromBottom && _userScrolledAway) {
+      setState(() {
+        _userScrolledAway = false;
       });
     }
   }
@@ -1440,8 +1461,7 @@ class _HomeContentState extends State<HomeContent>
                                   bottom: 6,
                                 ),
                                 constraints: BoxConstraints(
-                                  maxWidth:
-                                      MediaQuery.of(context).size.width * 0.7,
+                                  maxWidth: MediaQuery.of(context).size.width * 0.88,
                                 ),
                                 decoration: BoxDecoration(
                                   color: isUser
@@ -1541,7 +1561,10 @@ class _HomeContentState extends State<HomeContent>
                             child: Material(
                               color: Colors.transparent,
                               child: InkWell(
-                                onTap: () => _scrollToBottom(),
+                                onTap: () {
+                                  _userScrolledAway = false;
+                                  _scrollToBottom(force: true);
+                                },
                                 borderRadius: BorderRadius.circular(24),
                                 child: Container(
                                   width: 44,
@@ -4714,6 +4737,8 @@ class _SchedulePageState extends State<SchedulePage>
                                   : Colors.black,
                               width: 1,
                             ),
+                            tableColumnWidth: const IntrinsicColumnWidth(),
+                            tableScrollbarThumbVisibility: true,
                             tableCellsPadding: const EdgeInsets.all(10),
                             listBullet: TextStyle(
                               fontSize: 16,
@@ -4765,7 +4790,7 @@ String buildOcrInsertText(String text, String? formulaText) => text;
 
 /// 自定义 InlineSyntax：匹配 $...$（行内公式）和 $$...$$（显示公式）
 class _MathInlineSyntax extends md.InlineSyntax {
-  _MathInlineSyntax() : super(r'\$\$(.+?)\$\$|\$(.+?)\$');
+  _MathInlineSyntax() : super(r'\$\$([\s\S]+?)\$\$|\$([\s\S]+?)\$');
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
@@ -5128,6 +5153,8 @@ class _MathAwareText extends StatelessWidget {
       ),
       tableHead: TextStyle(fontWeight: FontWeight.bold, color: textColor),
       tableBody: TextStyle(color: textColor),
+      tableColumnWidth: const IntrinsicColumnWidth(),
+      tableScrollbarThumbVisibility: true,
       tableCellsPadding: const EdgeInsets.all(8),
       listBullet: TextStyle(color: textColor.withValues(alpha: 0.7)),
     );
@@ -5171,10 +5198,15 @@ class _MathElementBuilder extends MarkdownElementBuilder {
     if (isDisplay) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Math.tex(
-          _sanitizeLatex(formula),
-          textStyle: TextStyle(color: textColor, fontSize: 16),
-          mathStyle: MathStyle.display,
+        child: Scrollbar(
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Math.tex(
+              _sanitizeLatex(formula),
+              textStyle: TextStyle(color: textColor, fontSize: 16),
+              mathStyle: MathStyle.display,
+            ),
+          ),
         ),
       );
     }

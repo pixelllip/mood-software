@@ -165,6 +165,9 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
   bool _isGenerating = false;
   bool _showKeywordEditor = false;
 
+  /// 首次进入时是否已自动触发过关键词发现
+  bool _initialDiscoverDone = false;
+
   /// 上次搜索参数签名，避免条件不变时重复自动搜索
   int _lastSearchSignature = 0;
 
@@ -172,7 +175,10 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
   void initState() {
     super.initState();
     _loadKeywords().then((_) {
-      if (mounted && widget.isActive) _autoSearchIfChanged();
+      if (mounted && widget.isActive) {
+        _autoSearchIfChanged();
+        _autoDiscoverIfFirstTime();
+      }
     });
   }
 
@@ -183,7 +189,10 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
     final justActivated = !oldWidget.isActive && widget.isActive;
     if (justActivated || oldWidget.selectedDate != widget.selectedDate) {
       _loadKeywords().then((_) {
-        if (mounted) _autoSearchIfChanged();
+        if (mounted) {
+          _autoSearchIfChanged();
+          if (justActivated) _autoDiscoverIfFirstTime();
+        }
       });
     }
   }
@@ -197,6 +206,16 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
     if (sig == _lastSearchSignature && _matchedResults.isNotEmpty) return;
     _lastSearchSignature = sig;
     _doSearch();
+  }
+
+  /// 首次进入页面时自动触发一次关键词发现
+  void _autoDiscoverIfFirstTime() {
+    if (!mounted || _initialDiscoverDone) return;
+    _initialDiscoverDone = true;
+    // 延迟一小段时间确保界面已渲染完成
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) _discoverKeywords();
+    });
   }
 
   @override
@@ -452,34 +471,14 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
           screenWidth: screenWidth,
           bottomMargin: 82,
         );
+        // 重新加载关键词列表（可能有词被关联到扩展缓存）
+        _loadKeywords();
         return;
       }
 
-      // 过滤掉已有的关键词
-      final existing = {..._keywords, ..._customKeywords};
-      final newKeywords = discovered
-          .where((k) => !existing.contains(k))
-          .toList();
+      // 重新加载关键词列表（PC 端后端可能直接保存，手机端由 associateOrCreateKeywords 处理）
+      await _loadKeywords();
 
-      if (newKeywords.isEmpty) {
-        showTopSnackBarWithState(
-          messenger: msgCenter,
-          message: "发现 ${discovered.length} 个关键词，但都已存在",
-          bottomPadding: padBottom,
-          isMobile: isMobileMode,
-          screenWidth: screenWidth,
-          bottomMargin: 82,
-        );
-        return;
-      }
-
-      // 自动添加所有新发现的关键词
-      setState(() {
-        _customKeywords.addAll(newKeywords);
-      });
-      StudyAnalysisService.saveCustomKeywords(_customKeywords);
-
-      // 显示关联结果通知
       if (mounted) {
         showDialog(
           context: context,
@@ -495,10 +494,10 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text("已发现 ${newKeywords.length} 个学习关键词并自动添加："),
+                Text("新增 ${discovered.length} 个独立关键词："),
                 const SizedBox(height: 8),
                 Text(
-                  newKeywords.join("、"),
+                  discovered.join("、"),
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
@@ -507,7 +506,7 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  "已自动关联到已有学科缓存中，搜索时将能匹配到更多相关记录。",
+                  "其余匹配内容已自动关联到现有关键词中，搜索时将能匹配到更多相关记录。",
                   style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                 ),
               ],
@@ -926,7 +925,7 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                 alignment: Alignment.centerRight,
                 child: Container(
                   constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.8,
+                    maxWidth: MediaQuery.of(context).size.width * 0.88,
                   ),
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(14),
@@ -950,7 +949,7 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                 alignment: Alignment.centerLeft,
                 child: Container(
                   constraints: BoxConstraints(
-                    maxWidth: MediaQuery.of(context).size.width * 0.8,
+                    maxWidth: MediaQuery.of(context).size.width * 0.88,
                   ),
                   margin: const EdgeInsets.only(bottom: 12),
                   padding: const EdgeInsets.all(14),
@@ -960,10 +959,9 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                       16,
                     ).copyWith(bottomLeft: Radius.zero),
                   ),
-                  child: SelectionArea(
-                    child: MarkdownBody(
+                  child: MarkdownBody(
                       data: item.aiResponse,
-                      selectable: false,
+                      selectable: true,
                       inlineSyntaxes: [_MathInlineSyntax()],
                       builders: {
                         'math': _MathElementBuilder(
@@ -972,7 +970,6 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                       },
                       styleSheet: _markdownStyle(isDark),
                     ),
-                  ),
                 ),
               ),
               // 对话摘要
@@ -2748,14 +2745,18 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper>
 
 /// 内联公式语法解析（$$...$$ 和 $...$）
 class _MathInlineSyntax extends md.InlineSyntax {
-  _MathInlineSyntax() : super(r'\$\$(.+?)\$\$|\$(.+?)\$', startCharacter: 0x24);
+  _MathInlineSyntax() : super(r'\$\$([\s\S]+?)\$\$|\$([\s\S]+?)\$', startCharacter: 0x24);
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
     final content = (match.group(1) ?? match.group(2) ?? '').trim();
     if (content.isEmpty) return false;
-    final tag = match.group(1) != null ? 'math' : 'math';
-    parser.addNode(md.Element.text(tag, content));
+    final tag = 'math';
+    final el = md.Element.text(tag, content);
+    if (match.group(1) != null) {
+      el.attributes['display'] = 'true';
+    }
+    parser.addNode(el);
     return true;
   }
 }
@@ -2777,13 +2778,22 @@ class _MathElementBuilder extends MarkdownElementBuilder {
   ) {
     final content = element.textContent.trim();
     if (content.isEmpty) return null;
+
+    final isDisplay = element.attributes['display'] == 'true';
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Math.tex(
-        content,
-        textStyle: TextStyle(fontSize: 16, color: textColor),
-        onErrorFallback: (e) =>
-            Text('\$$content\$', style: TextStyle(color: textColor)),
+      child: Scrollbar(
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Math.tex(
+            content,
+            textStyle: TextStyle(fontSize: 16, color: textColor),
+            mathStyle: isDisplay ? MathStyle.display : MathStyle.text,
+            onErrorFallback: (e) =>
+                Text('\$$content\$', style: TextStyle(color: textColor)),
+          ),
+        ),
       ),
     );
   }
@@ -2818,6 +2828,15 @@ MarkdownStyleSheet _markdownStyle(bool isDark) {
       color: isDark ? Colors.white : Colors.black87,
     ),
     listBullet: TextStyle(color: isDark ? Colors.white70 : Colors.black54),
+    tableBorder: TableBorder.all(
+      color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
+      width: 1,
+    ),
+    tableHead: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+    tableBody: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
+    tableColumnWidth: const IntrinsicColumnWidth(),
+    tableScrollbarThumbVisibility: true,
+    tableCellsPadding: const EdgeInsets.all(8),
     blockquoteDecoration: BoxDecoration(
       border: Border(left: BorderSide(color: Colors.grey.shade400, width: 3)),
       color: isDark ? Colors.grey.shade800 : Colors.grey.shade50,

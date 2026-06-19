@@ -66,6 +66,8 @@ class ScheduleDetailPage extends StatelessWidget {
                   color: isDark ? Colors.grey.shade600 : Colors.black,
                   width: 1,
                 ),
+                tableColumnWidth: const IntrinsicColumnWidth(),
+                tableScrollbarThumbVisibility: true,
                 tableCellsPadding: const EdgeInsets.all(10),
                 listBullet: TextStyle(
                   fontSize: 16,

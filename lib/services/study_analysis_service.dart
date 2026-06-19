@@ -893,8 +893,8 @@ class StudyAnalysisService {
   /// 手机端本地关键词发现：从 AI 对话内容中自动提取潜在的学习关键词
   ///
   /// 此方法扫描 [aiResponse] 文本，使用规则匹配提取可能的学术、学科相关词汇，
-  /// 然后与现有关键词合并去重，并保存到配置文件中。
-  /// 返回新发现的关键词列表。
+  /// 然后通过 [associateOrCreateKeywords] 优先关联到现有关键词。
+  /// 返回实际新增的独立关键词列表（不含仅关联的）。
   static Future<List<String>> discoverKeywordsLocally({
     required String aiResponse,
   }) async {
@@ -903,28 +903,15 @@ class StudyAnalysisService {
     final discovered = _extractKeywordsFromText(aiResponse);
     if (discovered.isEmpty) return [];
 
-    // 合并到现有关键词中
     final existingKeywords = await getCustomKeywords();
-    final merged = <String>{...existingKeywords, ...discovered};
-    final newKeywords = discovered
-        .where((kw) => !existingKeywords.contains(kw))
-        .toList();
-
-    if (newKeywords.isNotEmpty) {
-      await saveCustomKeywords(merged.toList());
-      // 新关键词关联到已有关键词（如"小石潭记"关联到"语文"）
-      integrateDiscoveredKeywords(newKeywords);
-      debugPrint(">>> 本地关键词发现: 新增 ${newKeywords.length} 个关键词: $newKeywords");
-    }
-
-    return newKeywords;
+    return associateOrCreateKeywords(discovered.toList(), existingKeywords);
   }
 
   /// 从历史对话记录中批量发现关键词（手机端使用）
   ///
   /// 扫描最近 [days] 天的 backlog 对话文件，提取 AI 回复中出现的潜在学习关键词，
-  /// 与现有关键词合并去重后保存。
-  /// 返回新发现的关键词列表。
+  /// 然后通过 [associateOrCreateKeywords] 优先关联到现有关键词。
+  /// 返回实际新增的独立关键词列表（不含仅关联的）。
   static Future<List<String>> discoverKeywordsFromBacklog({
     int days = 7,
   }) async {
@@ -965,22 +952,9 @@ class StudyAnalysisService {
 
     if (discovered.isEmpty) return [];
 
-    // 合并到现有关键词中
+    // 通过 associateOrCreateKeywords 优先关联到现有关键词
     final existingKeywords = await getCustomKeywords();
-    final merged = <String>{...existingKeywords, ...discovered};
-    final newKeywords = discovered
-        .where((kw) => !existingKeywords.contains(kw))
-        .toList();
-
-    if (newKeywords.isNotEmpty) {
-      await saveCustomKeywords(merged.toList());
-      integrateDiscoveredKeywords(newKeywords);
-      debugPrint(
-        ">>> 批量关键词发现: 扫描 ${allTexts.length} 条回复, 新增 ${newKeywords.length} 个关键词: $newKeywords",
-      );
-    }
-
-    return newKeywords;
+    return associateOrCreateKeywords(discovered.toList(), existingKeywords);
   }
 
   // ========== 关键词联想扩展（手机端本地） ==========
@@ -1088,6 +1062,74 @@ class StudyAnalysisService {
     }
 
     return result.toList();
+  }
+
+  /// 将新发现的关键词优先关联到现有关键词的联想中，
+  /// 只有无法关联到任何现有关键词时才创建为独立新关键词。
+  ///
+  /// 返回实际新增的独立关键词列表。
+  static Future<List<String>> associateOrCreateKeywords(
+    List<String> discovered,
+    List<String> existingKeywords,
+  ) async {
+    if (discovered.isEmpty) return [];
+
+    final trulyNew = <String>[];
+    final toAssociate = <String>[];
+
+    for (final kw in discovered) {
+      if (existingKeywords.contains(kw)) continue; // 已存在，跳过
+
+      // 检查是否能关联到某个现有关键词
+      bool canAssociate = false;
+
+      // 1) 发现词是某个现有关键词的知识点/子主题
+      for (final existing in existingKeywords) {
+        final existingExpansions = subjectTopics[existing] ?? [];
+        if (existingExpansions.contains(kw)) {
+          canAssociate = true;
+          break;
+        }
+      }
+
+      // 2) 发现词有父学科，且该父学科在现有关键词中
+      if (!canAssociate) {
+        final parentSubject = topicToSubject[kw];
+        if (parentSubject != null && existingKeywords.contains(parentSubject)) {
+          canAssociate = true;
+        }
+      }
+
+      // 3) 发现词本身是学科，且有现有关键词是其知识点
+      if (!canAssociate && subjectTopics.containsKey(kw)) {
+        final topics = subjectTopics[kw]!;
+        if (topics.any((t) => existingKeywords.contains(t))) {
+          canAssociate = true;
+        }
+      }
+
+      if (canAssociate) {
+        toAssociate.add(kw);
+      } else {
+        trulyNew.add(kw);
+      }
+    }
+
+    // 将可关联的词写入扩展缓存（不创建独立关键词）
+    if (toAssociate.isNotEmpty) {
+      await integrateDiscoveredKeywords(toAssociate);
+      debugPrint(">>> 关键词关联: ${toAssociate.length} 个已关联到现有: $toAssociate");
+    }
+
+    // 真正新的才创建为独立关键词
+    if (trulyNew.isNotEmpty) {
+      final merged = <String>{...existingKeywords, ...trulyNew};
+      await saveCustomKeywords(merged.toList());
+      await integrateDiscoveredKeywords(trulyNew);
+      debugPrint(">>> 关键词新增: ${trulyNew.length} 个独立: $trulyNew");
+    }
+
+    return trulyNew;
   }
 
   /// 将新发现的关键词与已有关联列表关联
@@ -1201,7 +1243,8 @@ class StudyAnalysisService {
   /// 手机端 AI 关键词发现（批量）：扫描最近对话记录，用 AI 分析学习科目/知识点
   ///
   /// 收集最近 [days] 天内的用户问题，发送给 AI 分析，返回发现的学科关键词。
-  /// 与后端 `PreciseSearch.discoverKeywords()` 逻辑一致。
+  /// 然后通过 [associateOrCreateKeywords] 优先关联到现有关键词。
+  /// 返回实际新增的独立关键词列表（不含仅关联的）。
   static Future<List<String>> discoverKeywordsFromBacklogWithAI({
     required String baseUrl,
     required String apiKey,
@@ -1272,27 +1315,16 @@ ${uniqueQuestions.join("\n---\n")}
 
     if (aiResult.isEmpty) return [];
 
-    // 3. 合并到现有关键词
+    // 通过 associateOrCreateKeywords 优先关联到现有关键词
     final existingKeywords = await getCustomKeywords();
-    final merged = <String>{...existingKeywords, ...aiResult};
-    final newKeywords = aiResult
-        .where((kw) => !existingKeywords.contains(kw))
-        .toList();
-
-    if (newKeywords.isNotEmpty) {
-      await saveCustomKeywords(merged.toList());
-      integrateDiscoveredKeywords(newKeywords);
-      debugPrint(
-        ">>> AI关键词发现: 分析 ${uniqueQuestions.length} 条问题, 新增 ${newKeywords.length} 个: $newKeywords",
-      );
-    }
-
-    return newKeywords;
+    return associateOrCreateKeywords(aiResult, existingKeywords);
   }
 
   /// 手机端 AI 关键词发现（单条对话）：从 AI 回复中提炼学习关键词
   ///
   /// 用于每次对话结束后自动调用。将用户问题 + AI 回复发送给 AI 分析。
+  /// 然后通过 [associateOrCreateKeywords] 优先关联到现有关键词。
+  /// 返回实际新增的独立关键词列表（不含仅关联的）。
   static Future<List<String>> discoverKeywordsFromChatWithAI({
     required String baseUrl,
     required String apiKey,
@@ -1327,20 +1359,9 @@ AI回答：${aiResponse.length > 200 ? "${aiResponse.substring(0, 200)}..." : ai
 
     if (aiResult.isEmpty) return [];
 
-    // 合并到现有关键词
+    // 通过 associateOrCreateKeywords 优先关联到现有关键词
     final existingKeywords = await getCustomKeywords();
-    final merged = <String>{...existingKeywords, ...aiResult};
-    final newKeywords = aiResult
-        .where((kw) => !existingKeywords.contains(kw))
-        .toList();
-
-    if (newKeywords.isNotEmpty) {
-      await saveCustomKeywords(merged.toList());
-      integrateDiscoveredKeywords(newKeywords);
-      debugPrint(">>> AI单条关键词发现: 新增 ${newKeywords.length} 个: $newKeywords");
-    }
-
-    return newKeywords;
+    return associateOrCreateKeywords(aiResult, existingKeywords);
   }
 }
 
