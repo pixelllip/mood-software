@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
@@ -63,6 +64,10 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+    final isKeyboardVisible = keyboardHeight > 0;
+    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
+    final shouldHideBottomBar = isKeyboardVisible && isMobilePlatform;
 
     return Column(
       children: [
@@ -100,28 +105,33 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
             ],
           ),
         ),
-        // 底部导航栏（TabBar 样式）
-        Container(
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
-            border: Border(
-              top: BorderSide(
-                color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
-                width: 0.5,
+        // 移动端输入法弹出时隐藏底部导航栏
+        Offstage(
+          offstage: shouldHideBottomBar,
+          child: Container(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border(
+                top: BorderSide(
+                  color: isDark ? Colors.grey.shade700 : Colors.grey.shade300,
+                  width: 0.5,
+                ),
               ),
             ),
-          ),
-          child: TabBar(
-            controller: _tabController,
-            indicatorSize: TabBarIndicatorSize.label,
-            labelColor: isDark ? Colors.white : Theme.of(context).primaryColor,
-            unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
-            indicatorWeight: 3,
-            tabs: const [
-              Tab(icon: Icon(Icons.explore), text: "足迹"),
-              Tab(icon: Icon(Icons.note_alt), text: "笔记"),
-              Tab(icon: Icon(Icons.summarize), text: "总结"),
-            ],
+            child: TabBar(
+              controller: _tabController,
+              indicatorSize: TabBarIndicatorSize.label,
+              labelColor: isDark
+                  ? Colors.white
+                  : Theme.of(context).primaryColor,
+              unselectedLabelColor: isDark ? Colors.grey.shade400 : Colors.grey,
+              indicatorWeight: 3,
+              tabs: const [
+                Tab(icon: Icon(Icons.explore), text: "足迹"),
+                Tab(icon: Icon(Icons.note_alt), text: "笔记"),
+                Tab(icon: Icon(Icons.summarize), text: "总结"),
+              ],
+            ),
           ),
         ),
       ],
@@ -960,16 +970,16 @@ class _AutoNotesTabState extends State<_AutoNotesTab> {
                     ).copyWith(bottomLeft: Radius.zero),
                   ),
                   child: MarkdownBody(
-                      data: item.aiResponse,
-                      selectable: true,
-                      inlineSyntaxes: [_MathInlineSyntax()],
-                      builders: {
-                        'math': _MathElementBuilder(
-                          textColor: isDark ? Colors.white : Colors.black87,
-                        ),
-                      },
-                      styleSheet: _markdownStyle(isDark),
-                    ),
+                    data: item.aiResponse,
+                    selectable: true,
+                    inlineSyntaxes: [_MathInlineSyntax()],
+                    builders: {
+                      'math': _MathElementBuilder(
+                        textColor: isDark ? Colors.white : Colors.black87,
+                      ),
+                    },
+                    styleSheet: _markdownStyle(isDark),
+                  ),
                 ),
               ),
               // 对话摘要
@@ -1143,6 +1153,7 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
 
   /// 预生成的鼓励语列表，支持按需切换
   List<String> _encouragementList = [];
+
   /// 当前展示的鼓励语索引
   int _encouragementIndex = 0;
 
@@ -1293,7 +1304,8 @@ class _TodaySummaryTabState extends State<_TodaySummaryTab> {
   void _nextEncouragement() {
     if (_encouragementList.length <= 1) return;
     setState(() {
-      _encouragementIndex = (_encouragementIndex + 1) % _encouragementList.length;
+      _encouragementIndex =
+          (_encouragementIndex + 1) % _encouragementList.length;
       _encouragement = _encouragementList[_encouragementIndex];
     });
   }
@@ -2745,7 +2757,8 @@ class _KeepAliveWrapperState extends State<KeepAliveWrapper>
 
 /// 内联公式语法解析（$$...$$ 和 $...$）
 class _MathInlineSyntax extends md.InlineSyntax {
-  _MathInlineSyntax() : super(r'\$\$([\s\S]+?)\$\$|\$([\s\S]+?)\$', startCharacter: 0x24);
+  _MathInlineSyntax()
+    : super(r'\$\$([\s\S]+?)\$\$|\$([\s\S]+?)\$', startCharacter: 0x24);
 
   @override
   bool onMatch(md.InlineParser parser, Match match) {
@@ -2832,7 +2845,10 @@ MarkdownStyleSheet _markdownStyle(bool isDark) {
       color: isDark ? Colors.grey.shade600 : Colors.grey.shade400,
       width: 1,
     ),
-    tableHead: TextStyle(fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black87),
+    tableHead: TextStyle(
+      fontWeight: FontWeight.bold,
+      color: isDark ? Colors.white : Colors.black87,
+    ),
     tableBody: TextStyle(color: isDark ? Colors.white70 : Colors.black87),
     tableColumnWidth: const IntrinsicColumnWidth(),
     tableScrollbarThumbVisibility: true,
