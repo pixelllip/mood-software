@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'package:ai_agent/pages/home_page.dart';
 import 'package:flutter/material.dart';
 import 'package:dio/dio.dart';
 import 'package:ai_agent/backend_utils.dart';
@@ -64,10 +64,7 @@ class _StudyAnalysisPageState extends State<StudyAnalysisPage>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardVisible = keyboardHeight > 0;
-    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
-    final shouldHideBottomBar = isKeyboardVisible && isMobilePlatform;
+    final shouldHideBottomBar = BottomBarVisibility.of(context);
 
     return Column(
       children: [

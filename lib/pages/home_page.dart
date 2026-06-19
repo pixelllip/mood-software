@@ -316,222 +316,231 @@ class _MyHomePageState extends State<MyHomePage> {
     final screenSize = MediaQuery.of(context).size;
     // 宽度 < 450 或高度 < 500 时切换为抽屉模式，避免导航栏溢出
     final bool isMobile = screenSize.width < 450 || screenSize.height < 500;
-    // 移动端平台检测（用于键盘行为），无论横竖屏都生效
-    final bool isMobilePlatform = Platform.isAndroid || Platform.isIOS;
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        Scaffold(
-          // 移动端键盘弹出时自动调整 body，让输入框保持在键盘上方
-          // 桌面端保持不动
-          resizeToAvoidBottomInset: isMobilePlatform,
-          appBar: AppBar(
-            title: Text(
-              _displayedIndex == 0
-                  ? (_chatTabIndex == 1
-                        ? "聊天历史"
-                        : (_currentChatSummary ?? "AI聊天"))
-                  : pageTitles[_displayedIndex],
-            ),
-            backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-            actions: [
-              if (selectedIndex == 0 && _chatTabIndex == 0) ...[
+    // 从 Scaffold 外部检测键盘，viewInsets 不会被剥离
+    // 使用 50px 阈值：键盘快收完时提前显示 TabBar
+    // TabBar 出现的推升力与 body 最后 50px 缩放的下降力相互抵消
+    final double kbHeight = MediaQuery.of(context).viewInsets.bottom;
+    const double tabBarHeight = 128.0;
+    final bool shouldHideBottomBar =
+        kbHeight > tabBarHeight && (Platform.isAndroid || Platform.isIOS);
+
+    return BottomBarVisibility(
+      hideBottomBar: shouldHideBottomBar,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Scaffold(
+            // 让 Scaffold 自动调整 body，输入框自然保持在键盘上方
+            resizeToAvoidBottomInset: true,
+            appBar: AppBar(
+              title: Text(
+                _displayedIndex == 0
+                    ? (_chatTabIndex == 1
+                          ? "聊天历史"
+                          : (_currentChatSummary ?? "AI聊天"))
+                    : pageTitles[_displayedIndex],
+              ),
+              backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+              actions: [
+                if (selectedIndex == 0 && _chatTabIndex == 0) ...[
+                  IconButton(
+                    icon: const Icon(Icons.add_comment),
+                    tooltip: "新建对话",
+                    onPressed: () {
+                      setState(() {
+                        _currentChatSummary = null;
+                      });
+                      _homeContentKey.currentState?.resetChat();
+                    },
+                  ),
+                ],
+                const SizedBox(width: 10),
                 IconButton(
-                  icon: const Icon(Icons.add_comment),
-                  tooltip: "新建对话",
-                  onPressed: () {
-                    setState(() {
-                      _currentChatSummary = null;
-                    });
-                    _homeContentKey.currentState?.resetChat();
+                  icon: const Icon(Icons.settings),
+                  onPressed: () async {
+                    final result = await Navigator.push<bool>(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => SettingsPage(
+                          dio: widget.dio,
+                          userName: userName,
+                          userID: userID,
+                        ),
+                      ),
+                    );
+                    _loadUserInfo(); // 刷新用户信息
+                    if (result == true) _restartTour();
                   },
                 ),
               ],
-              const SizedBox(width: 10),
-              IconButton(
-                icon: const Icon(Icons.settings),
-                onPressed: () async {
-                  final result = await Navigator.push<bool>(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => SettingsPage(
-                        dio: widget.dio,
-                        userName: userName,
-                        userID: userID,
-                      ),
-                    ),
-                  );
-                  _loadUserInfo(); // 刷新用户信息
-                  if (result == true) _restartTour();
-                },
-              ),
-            ],
-          ),
-          drawer: isMobile ? buildDrawer() : null,
-          drawerEdgeDragWidth: isMobile
-              ? MediaQuery.of(context).size.width * 0.16
-              : null,
+            ),
+            drawer: isMobile ? buildDrawer() : null,
+            drawerEdgeDragWidth: isMobile
+                ? MediaQuery.of(context).size.width * 0.16
+                : null,
 
-          body: Row(
-            children: [
-              // 桌面侧栏（移动端用 AnimatedSize 平滑收起/展开）
-              AnimatedSize(
-                duration: const Duration(milliseconds: 300),
-                curve: Curves.easeInOut,
-                alignment: Alignment.centerLeft,
-                child: isMobile
-                    ? const SizedBox.shrink()
-                    : Container(
-                        width: 80,
-                        decoration: BoxDecoration(
-                          border: Border(
-                            right: BorderSide(
-                              color: Theme.of(context).dividerColor,
+            body: Row(
+              children: [
+                // 桌面侧栏（移动端用 AnimatedSize 平滑收起/展开）
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 300),
+                  curve: Curves.easeInOut,
+                  alignment: Alignment.centerLeft,
+                  child: isMobile
+                      ? const SizedBox.shrink()
+                      : Container(
+                          width: 80,
+                          decoration: BoxDecoration(
+                            border: Border(
+                              right: BorderSide(
+                                color: Theme.of(context).dividerColor,
+                              ),
                             ),
                           ),
-                        ),
-                        child: Column(
-                          children: [
-                            Expanded(
-                              child: buildRail(
-                                compact: screenSize.height < 600,
-                              ),
-                            ),
-                            // 主题切换（图标靠上，文字上边沿对齐底部导航栏上边沿）
-                            SizedBox(
-                              height: 72,
-                              child: InkWell(
-                                onTap: () {
-                                  final next =
-                                      Theme.of(context).brightness ==
-                                          Brightness.dark
-                                      ? ThemeMode.light
-                                      : ThemeMode.dark;
-                                  themeModeNotifier.value = next;
-                                  _saveThemeMode(next);
-                                },
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.start,
-                                  children: [
-                                    const SizedBox(height: 10),
-                                    Icon(
-                                      Theme.of(context).brightness ==
-                                              Brightness.dark
-                                          ? Icons.light_mode
-                                          : Icons.dark_mode,
-                                      size: 24,
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      "主题",
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
-                                          ),
-                                    ),
-                                  ],
+                          child: Column(
+                            children: [
+                              Expanded(
+                                child: buildRail(
+                                  compact: screenSize.height < 600,
                                 ),
                               ),
-                            ),
-                            // 设置（与底部导航栏对齐，底部留安全边距）
-                            SizedBox(
-                              height: 66,
-                              child: InkWell(
-                                onTap: () async {
-                                  final result = await Navigator.push<bool>(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => SettingsPage(
-                                        dio: widget.dio,
-                                        userName: userName,
-                                        userID: userID,
+                              // 主题切换（图标靠上，文字上边沿对齐底部导航栏上边沿）
+                              SizedBox(
+                                height: 72,
+                                child: InkWell(
+                                  onTap: () {
+                                    final next =
+                                        Theme.of(context).brightness ==
+                                            Brightness.dark
+                                        ? ThemeMode.light
+                                        : ThemeMode.dark;
+                                    themeModeNotifier.value = next;
+                                    _saveThemeMode(next);
+                                  },
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.start,
+                                    children: [
+                                      const SizedBox(height: 10),
+                                      Icon(
+                                        Theme.of(context).brightness ==
+                                                Brightness.dark
+                                            ? Icons.light_mode
+                                            : Icons.dark_mode,
+                                        size: 24,
                                       ),
-                                    ),
-                                  );
-                                  _loadUserInfo();
-                                  if (result == true) _restartTour();
-                                },
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(Icons.settings, size: 24),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      "设置",
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .labelSmall
-                                          ?.copyWith(
-                                            color: Theme.of(
-                                              context,
-                                            ).colorScheme.onSurface,
-                                          ),
-                                    ),
-                                  ],
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        "主题",
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurface,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
-                            // 底部安全距离，防止设置触底
-                            SizedBox(
-                              height: MediaQuery.of(context).padding.bottom + 4,
-                            ),
-                          ],
+                              // 设置（与底部导航栏对齐，底部留安全边距）
+                              SizedBox(
+                                height: 66,
+                                child: InkWell(
+                                  onTap: () async {
+                                    final result = await Navigator.push<bool>(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => SettingsPage(
+                                          dio: widget.dio,
+                                          userName: userName,
+                                          userID: userID,
+                                        ),
+                                      ),
+                                    );
+                                    _loadUserInfo();
+                                    if (result == true) _restartTour();
+                                  },
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      const Icon(Icons.settings, size: 24),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        "设置",
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              color: Theme.of(
+                                                context,
+                                              ).colorScheme.onSurface,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              // 底部安全距离，防止设置触底
+                              SizedBox(
+                                height:
+                                    MediaQuery.of(context).padding.bottom + 4,
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-              ),
-              Expanded(
-                child: IndexedStack(
-                  index: selectedIndex,
-                  children: [
-                    HomeContent(
-                      key: _homeContentKey,
-                      dio: widget.dio,
-                      useDirectApi: widget.useDirectApi,
-                      directBaseUrl: widget.directBaseUrl,
-                      directApiKey: widget.directApiKey,
-                      directModel: widget.directModel,
-                      onSummaryUpdate: (summary) {
-                        setState(() {
-                          _currentChatSummary = summary;
-                        });
-                      },
-                      onChatTabChanged: (index) {
-                        setState(() {
-                          _chatTabIndex = index;
-                        });
-                      },
-                    ),
-                    ScorePage(dio: widget.dio),
-                    SchedulePage(
-                      dio: widget.dio,
-                      isActive: selectedIndex == 2,
-                      studentID: userID,
-                      studentName: userName,
-                      useDirectApi: widget.useDirectApi,
-                      directBaseUrl: widget.directBaseUrl,
-                      directApiKey: widget.directApiKey,
-                      directModel: widget.directModel,
-                    ),
-                    StudyAnalysisPage(
-                      dio: widget.dio,
-                      useDirectApi: widget.useDirectApi,
-                      directBaseUrl: widget.directBaseUrl,
-                      directApiKey: widget.directApiKey,
-                      directModel: widget.directModel,
-                      isActive: selectedIndex == 3,
-                    ),
-                  ],
                 ),
-              ),
-            ],
+                Expanded(
+                  child: IndexedStack(
+                    index: selectedIndex,
+                    children: [
+                      HomeContent(
+                        key: _homeContentKey,
+                        dio: widget.dio,
+                        useDirectApi: widget.useDirectApi,
+                        directBaseUrl: widget.directBaseUrl,
+                        directApiKey: widget.directApiKey,
+                        directModel: widget.directModel,
+                        onSummaryUpdate: (summary) {
+                          setState(() {
+                            _currentChatSummary = summary;
+                          });
+                        },
+                        onChatTabChanged: (index) {
+                          setState(() {
+                            _chatTabIndex = index;
+                          });
+                        },
+                      ),
+                      ScorePage(dio: widget.dio),
+                      SchedulePage(
+                        dio: widget.dio,
+                        isActive: selectedIndex == 2,
+                        studentID: userID,
+                        studentName: userName,
+                        useDirectApi: widget.useDirectApi,
+                        directBaseUrl: widget.directBaseUrl,
+                        directApiKey: widget.directApiKey,
+                        directModel: widget.directModel,
+                      ),
+                      StudyAnalysisPage(
+                        dio: widget.dio,
+                        useDirectApi: widget.useDirectApi,
+                        directBaseUrl: widget.directBaseUrl,
+                        directApiKey: widget.directApiKey,
+                        directModel: widget.directModel,
+                        isActive: selectedIndex == 3,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1473,10 +1482,8 @@ class _HomeContentState extends State<HomeContent>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardVisible = keyboardHeight > 0;
-    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
-    final shouldHideBottomBar = isKeyboardVisible && isMobilePlatform;
+    // 从 InheritedWidget 读取键盘状态（由 MyHomePage 在 Scaffold 外部检测）
+    final shouldHideBottomBar = BottomBarVisibility.of(context);
 
     return Column(
       children: [
@@ -1871,6 +1878,7 @@ class _HomeContentState extends State<HomeContent>
         ),
         // 底部导航栏（TabBar 样式）："聊天" | "历史"
         // 移动端输入法弹出时隐藏，避免被键盘遮挡
+        // 使用 Offstage 瞬间切换（与 body 缩放同步），消除跳动
         Offstage(
           offstage: shouldHideBottomBar,
           child: Container(
@@ -3528,10 +3536,7 @@ class _ScorePageState extends State<ScorePage>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardVisible = keyboardHeight > 0;
-    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
-    final shouldHideBottomBar = isKeyboardVisible && isMobilePlatform;
+    final shouldHideBottomBar = BottomBarVisibility.of(context);
     return Column(
       children: [
         Expanded(
@@ -4517,10 +4522,7 @@ class _SchedulePageState extends State<SchedulePage>
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
-    final isKeyboardVisible = keyboardHeight > 0;
-    final isMobilePlatform = Platform.isAndroid || Platform.isIOS;
-    final shouldHideBottomBar = isKeyboardVisible && isMobilePlatform;
+    final shouldHideBottomBar = BottomBarVisibility.of(context);
     final dateDisplay =
         "${_selectedDate.year}年${_selectedDate.month}月${_selectedDate.day}日";
 
@@ -5720,6 +5722,30 @@ class _KeepAliveWrapperState extends State<_KeepAliveWrapper>
 
   @override
   bool get wantKeepAlive => true;
+}
+
+/// 从 Scaffold 外部传递键盘状态到子页面
+/// Scaffold 的 resizeToAvoidBottomInset:true 会剥离 body 内的
+/// MediaQuery.viewInsets，导致子页面无法自行检测键盘状态。
+/// 这个 InheritedWidget 在 Scaffold 外部读取 viewInsets 并向下传递。
+class BottomBarVisibility extends InheritedWidget {
+  final bool hideBottomBar;
+  const BottomBarVisibility({
+    super.key,
+    required this.hideBottomBar,
+    required super.child,
+  });
+
+  static bool of(BuildContext context) {
+    return context
+            .dependOnInheritedWidgetOfExactType<BottomBarVisibility>()
+            ?.hideBottomBar ??
+        false;
+  }
+
+  @override
+  bool updateShouldNotify(BottomBarVisibility oldWidget) =>
+      hideBottomBar != oldWidget.hideBottomBar;
 }
 
 @Preview()
