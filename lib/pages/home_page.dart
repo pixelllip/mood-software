@@ -18,6 +18,7 @@ import 'package:ai_agent/services/local_backend.dart';
 import 'package:ai_agent/services/location_service.dart';
 import 'package:ai_agent/services/study_analysis_service.dart';
 import 'package:url_launcher/url_launcher.dart';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:ai_agent/pages/feature_tour.dart';
@@ -644,7 +645,6 @@ class _HomeContentState extends State<HomeContent>
 
   /// 添加文件附件（代码文件读取为文本，图片转为 base64）
   Future<void> _handlePickFile() async {
-    // 预捕获 SnackBar 参数（避免 async 后使用 context）
     final hfpMessenger = ScaffoldMessenger.of(context);
     final hfpPadding = MediaQuery.of(context).padding.bottom;
     final hfpIsMobile = MediaQuery.of(context).size.width < 450;
@@ -655,45 +655,11 @@ class _HomeContentState extends State<HomeContent>
         XTypeGroup(
           label: '代码/文本文件',
           extensions: [
-            'dart',
-            'py',
-            'java',
-            'kt',
-            'js',
-            'ts',
-            'json',
-            'xml',
-            'html',
-            'css',
-            'yaml',
-            'yml',
-            'md',
-            'txt',
-            'sql',
-            'sh',
-            'bat',
-            'gradle',
-            'properties',
-            'cfg',
-            'ini',
-            'log',
-            'csv',
-            'env',
-            'c',
-            'cpp',
-            'h',
-            'hpp',
-            'go',
-            'rs',
-            'rb',
-            'php',
-            'swift',
-            'ps1',
-            'pl',
-            'lua',
-            'r',
-            'scala',
-            'groovy',
+            'dart', 'py', 'java', 'kt', 'js', 'ts', 'json', 'xml', 'html',
+            'css', 'yaml', 'yml', 'md', 'txt', 'sql', 'sh', 'bat', 'gradle',
+            'properties', 'cfg', 'ini', 'log', 'csv', 'env', 'c', 'cpp', 'h',
+            'hpp', 'go', 'rs', 'rb', 'php', 'swift', 'ps1', 'pl', 'lua', 'r',
+            'scala', 'groovy',
           ],
         ),
         XTypeGroup(
@@ -718,11 +684,9 @@ class _HomeContentState extends State<HomeContent>
 
       if (imageExts.contains(ext)) {
         hasImage = true;
-        // 图片：读取为 base64 + 自动 OCR
         try {
           final bytes = await file.readAsBytes();
           final b64 = base64Encode(bytes);
-          // 后台自动 OCR（不阻塞 UI）
           unawaited(_autoOcrImage(name, b64));
           setState(() {
             _attachments.add(
@@ -734,7 +698,6 @@ class _HomeContentState extends State<HomeContent>
           debugPrint("读取图片失败($name): $e");
         }
       } else {
-        // 代码/文本文件：读取内容
         try {
           final content = await file.readAsString();
           setState(() {
