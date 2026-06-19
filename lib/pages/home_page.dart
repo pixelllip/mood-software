@@ -270,11 +270,12 @@ class _MyHomePageState extends State<MyHomePage> {
     );
   }
 
-  Widget buildRail() {
+  Widget buildRail({bool compact = false}) {
     return NavigationRail(
       selectedIndex: selectedIndex,
       onDestinationSelected: onItemTapped,
-      labelType: NavigationRailLabelType.all,
+      // 高度不足时仅显示选中项的标签，避免溢出
+      labelType: compact ? NavigationRailLabelType.selected : NavigationRailLabelType.all,
       destinations: [
         NavigationRailDestination(
           icon: Icon(selectedIndex == 0 ? Icons.home : Icons.home_outlined),
@@ -305,12 +306,16 @@ class _MyHomePageState extends State<MyHomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isMobile = MediaQuery.of(context).size.width < 450;
+    final screenSize = MediaQuery.of(context).size;
+    // 宽度 < 450 或高度 < 500 时切换为抽屉模式，避免导航栏溢出
+    final bool isMobile = screenSize.width < 450 || screenSize.height < 500;
 
     return Stack(
       fit: StackFit.expand,
       children: [
         Scaffold(
+      // 键盘弹出时不改变 body 布局，防止导航栏底部按钮跟随键盘上移
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text(
           _displayedIndex == 0
@@ -376,7 +381,7 @@ class _MyHomePageState extends State<MyHomePage> {
                     ),
                     child: Column(
                       children: [
-                        Expanded(child: buildRail()),
+                        Expanded(child: buildRail(compact: screenSize.height < 600)),
                         // 主题切换（图标靠上，文字上边沿对齐底部导航栏上边沿）
                         SizedBox(
                           height: 72,
@@ -2498,7 +2503,7 @@ class _ScorePageState extends State<ScorePage>
     String tag,
   ) async {
     try {
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         await LocalScoreService.updateSubjectTag(
           studentId: student.studentId,
           subject: subject,
@@ -2609,7 +2614,7 @@ class _ScorePageState extends State<ScorePage>
       }
 
       try {
-        if (Platform.isAndroid) {
+        if (Platform.isAndroid || Platform.isIOS) {
           await LocalScoreService.addScore(
             studentId: student.studentId,
             name: student.name,
@@ -2669,7 +2674,7 @@ class _ScorePageState extends State<ScorePage>
         throw "请输入姓名";
       }
 
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         // 📱 Android：本地文件查询
         if (_searchById && _searchByName) {
           // 严格模式：按 ID 查所有匹配，再筛选姓名
@@ -2808,7 +2813,7 @@ class _ScorePageState extends State<ScorePage>
         scoresMap.addAll(entry);
       }
 
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         // 📱 Android：本地文件添加（支持自定义满分）
         await LocalScoreService.addScore(
           studentId: idController.text,
@@ -3387,7 +3392,7 @@ class _ScorePageState extends State<ScorePage>
     if (confirm != true) return;
 
     try {
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         await LocalScoreService.deleteSubjectScore(
           studentId: student.studentId,
           subject: subject,
@@ -3442,7 +3447,7 @@ class _ScorePageState extends State<ScorePage>
     if (confirm != true) return;
 
     try {
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         await LocalScoreService.deleteStudent(
           id: student.studentId.isNotEmpty ? student.studentId : null,
           name: student.name.isNotEmpty ? student.name : null,
@@ -3694,7 +3699,7 @@ class _TrendChartViewState extends State<_TrendChartView> {
     });
 
     try {
-      if (Platform.isAndroid) {
+      if (Platform.isAndroid || Platform.isIOS) {
         if (id.isNotEmpty && name.isNotEmpty) {
           // 双条件：先按 ID 精确查，再按姓名过滤
           final byId = await LocalScoreService.queryStudentsById(id);
@@ -4188,8 +4193,8 @@ class _SchedulePageState extends State<SchedulePage>
     setState(() => _isFetchingSubjects = true);
     try {
       List<String> subjects = [];
-      if (Platform.isAndroid) {
-        // 📱 Android：从本地文件读取
+      if (Platform.isAndroid || Platform.isIOS) {
+        // 📱 手机端：从本地文件读取
         final student = await LocalScoreService.queryStudent(
           id: widget.studentID.isNotEmpty ? widget.studentID : null,
           name: widget.studentName.isNotEmpty ? widget.studentName : null,
@@ -4249,8 +4254,8 @@ class _SchedulePageState extends State<SchedulePage>
       final dateStr =
           "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
 
-      if (Platform.isAndroid) {
-        // 📱 Android：从本地文件读取日程存档
+      if (Platform.isAndroid || Platform.isIOS) {
+        // 📱 手机端：从本地文件读取日程存档
         final saved = await LocalScheduleService.loadItinerary(dateStr);
         if (!mounted) return;
         if (saved != null) {
@@ -4332,8 +4337,8 @@ class _SchedulePageState extends State<SchedulePage>
       final dateStr =
           "${_selectedDate.year}-${_selectedDate.month}-${_selectedDate.day}";
 
-      if (Platform.isAndroid) {
-        // 📱 Android：通过直连 AI API 生成日程
+      if (Platform.isAndroid || Platform.isIOS) {
+        // 📱 手机端：通过直连 AI API 生成日程
         final baseUrl = widget.directBaseUrl;
         final apiKey = widget.directApiKey;
         final model = widget.directModel;
