@@ -15,7 +15,6 @@
 ## 以下是我们团队的成员介绍：
 
 #### 我是廖丞健。
-<img width="215" height="293" alt="processed-image" src="https://github.com/user-attachments/assets/d96e7853-a00c-4377-a8c9-e69d1ad04d5e" />
 
 
 
